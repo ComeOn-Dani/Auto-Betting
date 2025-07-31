@@ -1,0 +1,11 @@
+{
+  "admin": {
+    "passwordHash": "$2a$10$k9./FzjjdaibpzRTw/zOY.zl.uhOOSw6hH9SqOeG2e7VfA8uWstLK"
+  },
+  "user1": {
+    "passwordHash": "$2a$10$1kCyMb36DDLaXDitcJKdZ.ypl/.lubLRWyrYq0/XT/4HYOINVqNv2"
+  },
+  "user2": {
+    "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6"
+  }
+}
