@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>User Admin</title>
+<link rel="stylesheet" href="styles.css" />
+<style>
+  table{width:100%;border-collapse:collapse;margin-top:1rem}
+  th,td{border:1px solid #555;padding:0.6rem;text-align:center}
+  .add-box{margin-top:1rem;display:flex;gap:0.5rem}
+  .add-box input{flex:1;padding:0.5rem;border-radius:6px;border:none}
+  .icon-btn{background:transparent;border:none;color:#f44336;font-size:1.2rem;cursor:pointer}
+  .icon-btn:hover{color:#ff7961}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>User Admin</h1>
+  <table id="userTable">
+    <thead><tr><th>User</th><th>Action</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="add-box">
+    <input id="newUser" placeholder="username" />
+    <input id="newPass" placeholder="password" type="password" />
+    <button id="addBtn" class="btn-admin">Add</button>
+  </div>
+  <h3 style="margin-top:1.5rem">Change Admin Password</h3>
+  <div class="add-box">
+    <input id="newAdminPass" type="password" placeholder="new password" />
+    <button id="changePassBtn" class="btn-danger" style="flex:1">Update</button>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-top:1rem">
+    <button id="backBtn" class="btn-admin" style="flex:1">Back</button>
+    <button id="logout" class="btn-danger" style="flex:1">Logout</button>
+  </div>
+</div>
+<script src="admin.js"></script>
+</body>
+</html> 

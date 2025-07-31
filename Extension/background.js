@@ -1,6 +1,22 @@
 // Background service worker for Bet Automation Extension
 
-const WS_URL = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
+// const WS_URL = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
+const WS_URL = 'ws://localhost:8080/';
+
+let accessToken = null;
+let slotOccupied = false; // flag to stop auto reconnect when both slots taken
+
+function ensureTokenAndConnect() {
+  chrome.storage.local.get(['accessToken'], (res) => {
+    accessToken = res.accessToken || null;
+    if (!accessToken) {
+      // stay disconnected until user logs in via popup
+      updateIcon(false);
+      return;
+    }
+    connectWebSocket();
+  });
+}
 
 let ws = null;
 let reconnectInterval = null;
@@ -24,6 +40,10 @@ async function broadcastToAllTabs(msg) {
   } catch (err) {
     console.error('broadcastToAllTabs error', err);
   }
+}
+
+function notifyPopup(connected){
+  chrome.runtime.sendMessage({type:'statusUpdate', connected});
 }
 
 // Update extension icon based on connection status
@@ -103,11 +123,14 @@ async function disconnect() {
 
   // Clear stored PC name
   chrome.storage.local.remove('pcName');
+  if (slotOccupied) {
+    notifyPopup(false);
+  }
 }
 
 // Initialize WebSocket connection
 function connectWebSocket() {
-  if (isConnecting || isConnected) {
+  if (isConnecting || isConnected || slotOccupied) {
     return;
   }
 
@@ -127,6 +150,9 @@ function connectWebSocket() {
     // Tell content scripts to activate
     await broadcastToAllTabs({ type: 'activateBetAutomation' });
 
+    // Authenticate first
+    ws.send(JSON.stringify({ type: 'hello', token: accessToken }));
+
     // Request PC assignment from server
     ws.send(
       JSON.stringify({
@@ -136,6 +162,8 @@ function connectWebSocket() {
 
     // Update icon to recording.png (connected)
     updateIcon(true);
+
+    notifyPopup(true);
 
     lastServerMsg = Date.now();
     startWatchdog();
@@ -203,21 +231,27 @@ function connectWebSocket() {
         }
       });
     } else if (data.type === 'cancelBet') {
-      // Forward cancel command to content script
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            type: 'cancelBet',
-            platform: data.platform,
-            amount: data.amount,
-            side: data.side,
-          });
-        }
+      // Broadcast cancel command to all tabs (all frames)
+      broadcastToAllTabs({
+        type: 'cancelBet',
+        platform: data.platform,
+        amount: data.amount,
+        side: data.side,
       });
     } else if (data.type === 'error') {
-      // Handle error (e.g., both PC slots occupied)
       console.error('Server error:', data.message);
-      alert(data.message);
+      if (data.message && data.message.includes('Both PC slots')) {
+        slotOccupied = true;
+        // show chrome notification
+        if (chrome.notifications) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/not-recording.png',
+            title: 'Bet Automation',
+            message: 'Both PC slots are occupied. Connection closed.',
+          });
+        }
+      }
       disconnect();
     }
   };
@@ -239,12 +273,13 @@ function connectWebSocket() {
     chrome.storage.local.remove('pcName');
 
     // Only attempt to reconnect if we were connected and didn't manually disconnect
-    if (wasConnected && !reconnectInterval) {
+    if (wasConnected && !reconnectInterval && !slotOccupied) {
       reconnectInterval = setInterval(() => {
         console.log('Connection lost, attempting to reconnect...');
         connectWebSocket();
       }, 3000);
     }
+    notifyPopup(false);
   };
 
   ws.onerror = (error) => {
@@ -300,12 +335,13 @@ chrome.action.onClicked.addListener(() => {
   } else {
     // Connect when icon is clicked while disconnected
     console.log('Icon clicked - connecting to server...');
-    connectWebSocket();
+    ensureTokenAndConnect();
   }
 });
 
-// Initialize with not-recording.png icon
+// Initialize icon and attempt connection
 updateIcon(false);
+ensureTokenAndConnect();
 
 function startWatchdog() {
   if (watchdogInterval) return;
@@ -327,4 +363,33 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       })
       .catch(() => {});
   }
+});
+
+// listen for popup requests
+chrome.runtime.onMessage.addListener((msg)=>{
+  if(msg.type==='tokenUpdated'){
+    ensureTokenAndConnect();
+  }
+  if(msg.type==='logout'){
+    disconnect();
+    accessToken=null;
+    updateIcon(false);
+    slotOccupied=false;
+    notifyPopup(false);
+  }
+  if(msg.type==='getConnectionStatus'){
+    sendResponse({connected:isConnected});
+    return true; // keep channel
+  }
+  if(msg.type==='connectReq'){
+    ensureTokenAndConnect();
+  }
+  if(msg.type==='disconnectReq'){
+    disconnect();
+  }
+});
+
+// reset slotOccupied flag when user tries to connect via popup
+chrome.runtime.onMessage.addListener((m)=>{
+  if(m.type==='connectReq'){slotOccupied=false;}
 });

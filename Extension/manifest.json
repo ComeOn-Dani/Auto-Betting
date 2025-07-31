@@ -3,7 +3,7 @@
   "name": "Bet Automation Extension",
   "version": "1.0.0",
   "description": "Automated betting extension for casino platforms",
-  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "permissions": ["storage", "activeTab", "tabs", "scripting", "notifications"],
   "host_permissions": [
     "<all_urls>",
     "https://absolutely-stirring-racer.ngrok-free.app/*",
@@ -15,7 +15,12 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_icon": "icons/not-recording.png"
+    "default_icon": {
+      "16": "icons/not-recording.png",
+      "48": "icons/not-recording.png",
+      "128": "icons/not-recording.png"
+    },
+    "default_popup": "popup.html"
   },
   "icons": {
     "16": "icons/not-recording.png",
