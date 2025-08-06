@@ -5,7 +5,7 @@ This is the controller application for the automated betting system. It provides
 ## Features
 
 - Real-time WebSocket connection to Chrome extensions
-- Platform selection (Evolution/Pragmatic)
+- Platform: Pragmatic only
 - PC selection (PC1/PC2)
 - Amount selection (1K, 25K, 50K, 100K)
 - Side selection (Player/Banker)

@@ -18,7 +18,7 @@ if (!currentUser) {
 
 // State management
 const state = {
-  platform: 'Evolution',
+  platform: 'Pragmatic', // Fixed to Pragmatic only
   firstPC: 'PC1',
   amount: null,
   side: null,
@@ -154,11 +154,11 @@ function updateConnectionStatus(connectedPCs) {
   updateCancelAllBtn();
 }
 
-// Platform switch handler
-platformSwitch.addEventListener('change', (e) => {
-  state.platform = e.target.checked ? 'Pragmatic' : 'Evolution';
-  addLog(`Platform switched to ${state.platform}`, 'info');
-});
+// Platform switch handler (removed - only Pragmatic)
+// platformSwitch.addEventListener('change', (e) => {
+//   state.platform = e.target.checked ? 'Pragmatic' : 'Evolution';
+//   addLog(`Platform switched to ${state.platform}`, 'info');
+// });
 
 // Swap button handler – toggles which PC is first in betting order
 swapBtn.addEventListener('click', () => {
@@ -549,6 +549,7 @@ selectedAmountDisplay.textContent = '--';
 
 // Initial log
 addLog('Controller initialized', 'success');
+addLog('Platform: Pragmatic only', 'info');
 
 // Cancel all bets handler
 cancelAllBtn.addEventListener('click', async () => {
