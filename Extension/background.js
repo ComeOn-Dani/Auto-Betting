@@ -198,7 +198,7 @@ function connectWebSocket() {
 
       console.log(`This extension is assigned as: ${pcName}`);
     } else if (data.type === 'placeBet') {
-      // Forward bet command to content script
+      // Forward bet command to content script (main frame only)
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]) {
           chrome.tabs
@@ -231,12 +231,18 @@ function connectWebSocket() {
         }
       });
     } else if (data.type === 'cancelBet') {
-      // Broadcast cancel command to all tabs (all frames)
-      broadcastToAllTabs({
-        type: 'cancelBet',
-        platform: data.platform,
-        amount: data.amount,
-        side: data.side,
+      // Send cancel command to active tab only (main frame)
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            type: 'cancelBet',
+            platform: data.platform,
+            amount: data.amount,
+            side: data.side,
+          }).catch((err) => {
+            console.error('Failed to send cancel message to content script:', err);
+          });
+        }
       });
     } else if (data.type === 'error') {
       console.error('Server error:', data.message);
@@ -304,7 +310,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       );
     }
   } else if (request.type === 'betError') {
-    // Forward error message to controller
+    // Forward error message to controller with enhanced details
     if (ws && ws.readyState === WebSocket.OPEN && pcName) {
       ws.send(
         JSON.stringify({
@@ -314,6 +320,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           platform: request.platform,
           amount: request.amount,
           side: request.side,
+          errorType: request.errorType || 'unknown',
+          errorDetails: request.errorDetails || null,
+          availableChips: request.availableChips || null,
+          triedSelectors: request.triedSelectors || null,
+          chipValue: request.chipValue || null,
+          timestamp: request.timestamp || new Date().toISOString()
         }),
       );
     }

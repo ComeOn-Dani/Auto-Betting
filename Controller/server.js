@@ -190,6 +190,14 @@ wss.on('connection', (ws, req) => {
       // Handle bet error
       if (data.type === 'betError') {
         console.log(`Bet error from ${data.pc}:`, data.message);
+        console.log('Error details:', {
+          errorType: data.errorType,
+          errorDetails: data.errorDetails,
+          availableChips: data.availableChips,
+          triedSelectors: data.triedSelectors,
+          chipValue: data.chipValue,
+          timestamp: data.timestamp
+        });
 
         // Broadcast error to all status listeners
         room.statusListeners.forEach((listener) => {
@@ -202,20 +210,70 @@ wss.on('connection', (ws, req) => {
                 platform: data.platform,
                 amount: data.amount,
                 side: data.side,
+                errorType: data.errorType,
+                errorDetails: data.errorDetails,
+                availableChips: data.availableChips,
+                triedSelectors: data.triedSelectors,
+                chipValue: data.chipValue,
+                timestamp: data.timestamp
               }),
             );
           }
         });
 
-        // Cancel the opposite PC's bet if already sent
-        const oppositePC = data.pc === 'PC1' ? 'PC2' : 'PC1';
-        sendCancelBet(oppositePC, data.platform, data.amount, data.side, room);
+        // Handle bet failure for simultaneous betting
+        const activeBet = activeBets.get(room.id);
+        if (activeBet) {
+          // Mark this PC as failed
+          activeBet[data.pc] = { status: 'failed', error: data.message, errorType: data.errorType };
+          
+          // Cancel the opposite PC's bet if it's still pending
+          const oppositePC = data.pc === 'PC1' ? 'PC2' : 'PC1';
+          if (activeBet[oppositePC] && activeBet[oppositePC].status === 'pending') {
+            console.log(`Cancelling bet on ${oppositePC} due to failure on ${data.pc}`);
+            sendCancelBet(oppositePC, data.platform, data.amount, data.side, room);
+            activeBet[oppositePC] = { status: 'cancelled', reason: `Cancelled due to failure on ${data.pc}` };
+          }
+          
+          // Clean up the bet tracking after a short delay
+          setTimeout(() => {
+            activeBets.delete(room.id);
+            console.log(`Cleaned up bet tracking for room ${room.id}`);
+          }, 5000);
+        } else {
+          // Fallback for single PC bets or untracked bets
+          const oppositePC = data.pc === 'PC1' ? 'PC2' : 'PC1';
+          sendCancelBet(oppositePC, data.platform, data.amount, data.side, room);
+        }
       }
 
       // Handle bet success
       if (data.type === 'betSuccess') {
         console.log(`Bet success from ${data.pc}:`, data);
-        // No further action required – bets are now sent simultaneously
+        
+        // Handle bet success for simultaneous betting
+        const activeBet = activeBets.get(room.id);
+        if (activeBet) {
+          // Mark this PC as successful
+          activeBet[data.pc] = { status: 'success', timestamp: Date.now() };
+          
+          // Check if both PCs have completed
+          const pc1Status = activeBet.PC1.status;
+          const pc2Status = activeBet.PC2.status;
+          
+          if (pc1Status !== 'pending' && pc2Status !== 'pending') {
+            // Both PCs have completed (success or failure)
+            if (pc1Status === 'success' && pc2Status === 'success') {
+              console.log(`Both PCs successfully placed bets for ${activeBet.betId}`);
+            } else {
+              console.log(`Bet completed with mixed results: PC1=${pc1Status}, PC2=${pc2Status}`);
+            }
+            
+            // Clean up the bet tracking
+            activeBets.delete(room.id);
+            console.log(`Cleaned up bet tracking for room ${room.id}`);
+          }
+        }
       }
     } catch (error) {
       console.error('Error processing message:', error);
@@ -344,6 +402,9 @@ setInterval(() => {
   });
 }, HEARTBEAT_INTERVAL);
 
+// Track active bets for each room
+const activeBets = new Map(); // roomId -> { betId, PC1: { status, startTime }, PC2: { status, startTime } }
+
 // API endpoint to send bet command
 app.post('/api/bet', (req, res) => {
   const { platform, pc, amount, side, single = false, user } = req.body;
@@ -355,10 +416,10 @@ app.post('/api/bet', (req, res) => {
   const oppositeSide = side === 'Player' ? 'Banker' : 'Player';
 
   let sentCount = 0;
+  const room = getRoom(user);
 
   // Helper to send bet to a specific PC
   const sendBetToPC = (targetPC, targetSide) => {
-    const room = getRoom(user);
     room.clients.forEach((client) => {
       if (client.pc === targetPC && client.ws.readyState === WebSocket.OPEN) {
         client.ws.send(
@@ -386,19 +447,68 @@ app.post('/api/bet', (req, res) => {
     return;
   }
 
-  // Original behavior: send to both PCs
+  // For simultaneous betting, track the bet state
+  const betId = `${user}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const betState = {
+    betId,
+    PC1: { status: 'pending', startTime: Date.now() },
+    PC2: { status: 'pending', startTime: Date.now() },
+    platform,
+    amount,
+    side,
+    oppositeSide
+  };
+  
+  activeBets.set(room.id, betState);
+  console.log(`Started tracking bet ${betId} for room ${room.id}`);
+
+  // Send to both PCs
   sendBetToPC(selectedPC, side);
   sendBetToPC(oppositePC, oppositeSide);
 
   if (sentCount === 2) {
-    res.json({ success: true, message: 'Bet commands sent to both PCs' });
+    // Set up timeout to handle unresponsive PCs
+    const timeoutDuration = 10000; // 10 seconds
+    setTimeout(() => {
+      const currentBet = activeBets.get(room.id);
+      if (currentBet && currentBet.betId === betId) {
+        // Check for any PCs that are still pending
+        if (currentBet.PC1.status === 'pending') {
+          console.log(`PC1 timed out for bet ${betId}, cancelling PC2 if still pending`);
+          currentBet.PC1 = { status: 'timeout', reason: 'No response within timeout period' };
+          if (currentBet.PC2.status === 'pending') {
+            sendCancelBet('PC2', platform, amount, side, room);
+            currentBet.PC2 = { status: 'cancelled', reason: 'Cancelled due to PC1 timeout' };
+          }
+        }
+        if (currentBet.PC2.status === 'pending') {
+          console.log(`PC2 timed out for bet ${betId}, cancelling PC1 if still pending`);
+          currentBet.PC2 = { status: 'timeout', reason: 'No response within timeout period' };
+          if (currentBet.PC1.status === 'pending') {
+            sendCancelBet('PC1', platform, amount, side, room);
+            currentBet.PC1 = { status: 'cancelled', reason: 'Cancelled due to PC2 timeout' };
+          }
+        }
+        
+        // Clean up after timeout
+        setTimeout(() => {
+          activeBets.delete(room.id);
+          console.log(`Cleaned up timed out bet tracking for room ${room.id}`);
+        }, 2000);
+      }
+    }, timeoutDuration);
+    
+    res.json({ success: true, message: 'Bet commands sent to both PCs', betId });
   } else {
+    // Clean up if we couldn't send to both PCs
+    activeBets.delete(room.id);
     res.status(404).json({ success: false, message: 'One or both PCs are not connected' });
   }
 });
 
 // Utility: cancel bet on a specific PC
 function sendCancelBet(targetPC, platform = '', amount = null, side = '', room) {
+  let sent = false;
   room.clients.forEach((client) => {
     if (client.pc === targetPC && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(
@@ -409,8 +519,16 @@ function sendCancelBet(targetPC, platform = '', amount = null, side = '', room) 
           side,
         }),
       );
+      sent = true;
+      console.log(`Cancel bet command sent to ${targetPC}`);
     }
   });
+  
+  if (!sent) {
+    console.log(`Could not send cancel bet command to ${targetPC} - not connected`);
+  }
+  
+  return sent;
 }
 
 // API endpoint to get connection status
@@ -429,19 +547,39 @@ app.get('/api/status', (req, res) => {
   res.json(status);
 });
 
-// API endpoint to send cancel to both PCs
+// API endpoint to send cancel to connected PCs only
 app.post('/api/cancelBetAll', (req, res) => {
   const { user } = req.body;
+  let cancelledCount = 0;
+  
   if (user) {
     const room = getRoom(user);
-    ['PC1', 'PC2'].forEach((pc) => sendCancelBet(pc, '', null, '', room));
+    // Only send cancel to connected PCs
+    room.clients.forEach((client) => {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        if (sendCancelBet(client.pc, '', null, '', room)) {
+          cancelledCount++;
+        }
+      }
+    });
   } else {
     // no user specified: broadcast to every room (admin scenario)
     rooms.forEach((room) => {
-      ['PC1', 'PC2'].forEach((pc) => sendCancelBet(pc, '', null, '', room));
+      room.clients.forEach((client) => {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          if (sendCancelBet(client.pc, '', null, '', room)) {
+            cancelledCount++;
+          }
+        }
+      });
     });
   }
-  res.json({ success: true });
+  
+  if (cancelledCount > 0) {
+    res.json({ success: true, message: `Cancel command sent to ${cancelledCount} connected PC(s)` });
+  } else {
+    res.json({ success: false, message: 'No connected PCs to cancel bets on' });
+  }
 });
 
 // Login endpoint

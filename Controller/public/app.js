@@ -104,9 +104,64 @@ function connectStatusWebSocket() {
     if (data.type === 'status') {
       updateConnectionStatus(data.connectedPCs);
     } else if (data.type === 'betError') {
-      // Show alert for bet errors
-      alert(`Bet Error from ${data.pc}: ${data.message}`);
-      addLog(`Bet error from ${data.pc}: ${data.message}`, 'error');
+      // Handle different error types with appropriate user-friendly messages
+      let userMessage = data.message;
+      let logMessage = `Bet error from ${data.pc}: ${data.message}`;
+      
+      // Add detailed technical information for debugging
+      const errorDetails = [];
+      if (data.errorType) errorDetails.push(`Type: ${data.errorType}`);
+      if (data.availableChips) errorDetails.push(`Available chips: ${data.availableChips.join(', ')}`);
+      if (data.triedSelectors) errorDetails.push(`Tried selectors: ${data.triedSelectors.join(', ')}`);
+      if (data.chipValue) errorDetails.push(`Chip value: ${data.chipValue}`);
+      
+      if (errorDetails.length > 0) {
+        logMessage += ` (${errorDetails.join(' | ')})`;
+      }
+      
+      // Provide user-friendly messages for common error types
+      switch (data.errorType) {
+        case 'not_betting_time':
+          userMessage = `${data.pc}: Not betting time - please wait for the betting phase`;
+          break;
+        case 'wrong_tab':
+          userMessage = `${data.pc}: Wrong tab - please navigate to the casino game`;
+          break;
+        case 'script_inactive':
+          userMessage = `${data.pc}: Script not active - please reconnect the extension`;
+          break;
+        case 'betting_interface_timeout':
+          userMessage = `${data.pc}: Betting interface not ready - please refresh the page`;
+          break;
+        case 'betting_disabled':
+          userMessage = `${data.pc}: Betting disabled - game in progress`;
+          break;
+        case 'no_chips_found':
+          userMessage = `${data.pc}: No chips available - please check the game`;
+          break;
+        case 'chip_disabled':
+          userMessage = `${data.pc}: Selected chip is disabled`;
+          break;
+        case 'cannot_compose_amount':
+          userMessage = `${data.pc}: Cannot place this amount with available chips`;
+          break;
+        case 'bet_placement_failed':
+          userMessage = `${data.pc}: Bet placement failed - please try again`;
+          break;
+        default:
+          userMessage = `${data.pc}: ${data.message}`;
+      }
+      
+      addLog(logMessage, 'error');
+      
+      // Show a non-blocking notification with user-friendly message
+      showErrorNotification(userMessage);
+    } else if (data.type === 'betSuccess') {
+      // Handle bet success
+      addLog(`Bet success from ${data.pc}: ${formatAmount(data.amount)} on ${data.side}`, 'success');
+      
+      // Show a brief success notification
+      showSuccessNotification(`${data.pc}: Bet placed successfully`);
     }
   };
 
@@ -409,7 +464,7 @@ placeBetPc1Btn.addEventListener('click', async () => {
     side: state.side,
     single: true,
     user: currentUser,
-  };
+  };  
   try {
     const response = await fetch('/api/bet', {
       method: 'POST',
@@ -561,20 +616,82 @@ cancelAllBtn.addEventListener('click', async () => {
     });
     const result = await response.json();
     if (result.success) {
-      addLog('Cancel bet command sent to both PCs', 'success');
+      addLog(result.message || 'Cancel bet command sent to connected PCs', 'success');
+      showSuccessNotification(result.message || 'Cancel command sent');
     } else {
       addLog(`Failed to cancel bets: ${result.message}`, 'error');
+      showErrorNotification(result.message || 'Failed to cancel bets');
     }
   } catch (err) {
     addLog(`Error sending cancel: ${err.message}`, 'error');
+    showErrorNotification('Error sending cancel command');
   }
 });
 
 function updateCancelAllBtn() {
-  cancelAllBtn.disabled = !(state.connectedPCs.PC1 || state.connectedPCs.PC2);
+  const hasConnectedPCs = state.connectedPCs.PC1 || state.connectedPCs.PC2;
+  cancelAllBtn.disabled = !hasConnectedPCs;
+  
+  // Update button text to show which PCs are connected
+  if (hasConnectedPCs) {
+    const connectedPCs = [];
+    if (state.connectedPCs.PC1) connectedPCs.push('PC1');
+    if (state.connectedPCs.PC2) connectedPCs.push('PC2');
+    cancelAllBtn.textContent = `Cancel All (${connectedPCs.join(', ')})`;
+  } else {
+    cancelAllBtn.textContent = 'Cancel All (No PCs Connected)';
+  }
 }
 
 logoutBtn.addEventListener('click', () => {
   localStorage.removeItem('accessToken');
   window.location.href = 'login.html';
 });
+
+// Error notification system
+function showErrorNotification(message) {
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'error-notification';
+  notification.innerHTML = `
+    <div class="error-notification-content">
+      <span class="error-icon">⚠️</span>
+      <span class="error-message">${message}</span>
+      <button class="error-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    </div>
+  `;
+  
+  // Add to page
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 10 seconds
+  setTimeout(() => {
+    if (notification.parentElement) {
+      notification.remove();
+    }
+  }, 10000);
+}
+
+// Success notification system
+function showSuccessNotification(message) {
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'success-notification';
+  notification.innerHTML = `
+    <div class="success-notification-content">
+      <span class="success-icon">✅</span>
+      <span class="success-message">${message}</span>
+      <button class="success-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    </div>
+  `;
+  
+  // Add to page
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 5 seconds (shorter for success)
+  setTimeout(() => {
+    if (notification.parentElement) {
+      notification.remove();
+    }
+  }, 5000);
+}

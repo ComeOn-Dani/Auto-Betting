@@ -14,10 +14,30 @@
 
   // Helper – check if this frame actually contains the betting UI
   function isBettingFrame() {
-    return (
-      document.querySelector('#leftBetTextRoot, #rightBetTextRoot') &&
-      document.querySelector('button[data-testid^="chip-stack-value-"]')
-    );
+    const betAreas = document.querySelector('#leftBetTextRoot, #rightBetTextRoot');
+    const chipButtons = document.querySelector('button[data-testid^="chip-stack-value-"]');
+    
+    // Both exist - we're in betting frame and it's betting time
+    if (betAreas && chipButtons) {
+      return true;
+    }
+    
+    // Only bet areas exist - we're on the right tab but not betting time
+    if (betAreas && !chipButtons) {
+      return 'not_betting_time';
+    }
+    
+    // Neither exist - we're in a different tab
+    if (!betAreas && !chipButtons) {
+      return 'wrong_tab';
+    }
+    
+    // Only chip buttons exist (unlikely but possible)
+    if (!betAreas && chipButtons) {
+      return 'wrong_tab';
+    }
+    
+    return false;
   }
 
   // Visual indicator helpers
@@ -47,25 +67,93 @@
     document.body.appendChild(indicator);
   }
 
+  // Helper function to check if this is the main frame (not an iframe)
+  function isMainFrame() {
+    return window === window.top;
+  }
+
   // Listen for bet commands from background script
   chrome.runtime.onMessage.addListener((request) => {
     switch (request.type) {
       case 'activateBetAutomation':
-        isActive = true;
-        if (isBettingFrame()) showIndicator();
+        // Only respond from the main frame to prevent duplicate responses
+        if (isMainFrame()) {
+          isActive = true;
+          const bettingFrameResult = isBettingFrame();
+          console.log("bettingResult", bettingFrameResult);
+          if (bettingFrameResult === true) {
+            showIndicator();
+          } else if (bettingFrameResult === 'not_betting_time') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'You are on the right tab but it is not betting time. Please wait for the betting phase.',
+              errorType: 'not_betting_time'
+            });
+          } else if (bettingFrameResult === 'wrong_tab') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'You are not on the betting tab. Please navigate to the casino game.',
+              errorType: 'wrong_tab'
+            });
+          }
+        }
         break;
       case 'deactivateBetAutomation':
         isActive = false;
         hideIndicator();
         break;
       case 'placeBet':
-        if (isActive && isBettingFrame()) {
-          placeBet(request.platform, request.amount, request.side);
+        // Only respond from the main frame to prevent duplicate responses
+        if (isActive && isMainFrame()) {
+          console.log('[BetAutomation] Processing placeBet command in main frame');
+          const bettingFrameResult = isBettingFrame();
+          if (bettingFrameResult === true) {
+            placeBet(request.platform, request.amount, request.side);
+          } else if (bettingFrameResult === 'not_betting_time') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'Cannot place bet: You are on the right tab but it is not betting time. Please wait for the betting phase.',
+              platform: request.platform,
+              amount: request.amount,
+              side: request.side,
+              errorType: 'not_betting_time'
+            });
+          } else if (bettingFrameResult === 'wrong_tab') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'Cannot place bet: You are not on the betting tab. Please navigate to the casino game.',
+              platform: request.platform,
+              amount: request.amount,
+              side: request.side,
+              errorType: 'wrong_tab'
+            });
+          }
+        } else {
+          console.log('[BetAutomation] Ignoring placeBet command - not active or not main frame');
         }
         break;
       case 'cancelBet':
-        if (isActive && isBettingFrame()) {
-          cancelBet();
+        // Only respond from the main frame to prevent duplicate responses
+        if (isActive && isMainFrame()) {
+          console.log('[BetAutomation] Processing cancelBet command in main frame');
+          const bettingFrameResult = isBettingFrame();
+          if (bettingFrameResult === true) {
+            cancelBet();
+          } else if (bettingFrameResult === 'not_betting_time') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'Cannot cancel bet: You are on the right tab but it is not betting time.',
+              errorType: 'not_betting_time'
+            });
+          } else if (bettingFrameResult === 'wrong_tab') {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: 'Cannot cancel bet: You are not on the betting tab.',
+              errorType: 'wrong_tab'
+            });
+          }
+        } else {
+          console.log('[BetAutomation] Ignoring cancelBet command - not active or not main frame');
         }
         break;
       default:
@@ -177,12 +265,113 @@
   async function placeBet(platform, amount, side) {
     try {
       // Ensure script active and correct frame
-      if (!isActive || !isBettingFrame()) {
+      if (!isActive) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: 'Script not active',
+          platform,
+          amount,
+          side,
+          errorType: 'script_inactive'
+        });
+        return;
+      }
+
+      const bettingFrameResult = isBettingFrame();
+      if (bettingFrameResult !== true) {
+        let errorMessage = 'Not in betting frame';
+        let errorType = 'not_betting_frame';
+        
+        if (bettingFrameResult === 'not_betting_time') {
+          errorMessage = 'You are on the right tab but it is not betting time. Please wait for the betting phase.';
+          errorType = 'not_betting_time';
+        } else if (bettingFrameResult === 'wrong_tab') {
+          errorMessage = 'You are not on the betting tab. Please navigate to the casino game.';
+          errorType = 'wrong_tab';
+        }
+        
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: errorMessage,
+          platform,
+          amount,
+          side,
+          errorType: errorType
+        });
+        return;
+      }
+
+      // Validate inputs
+      if (!amount || amount <= 0) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: `Invalid bet amount: ${amount}`,
+          platform,
+          amount,
+          side,
+          errorType: 'invalid_amount'
+        });
+        return;
+      }
+
+      if (!side || !['Player', 'Banker'].includes(side)) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: `Invalid bet side: ${side}`,
+          platform,
+          amount,
+          side,
+          errorType: 'invalid_side'
+        });
         return;
       }
 
       // Short initial wait to ensure page is ready
       await sleep(150);
+
+      // Check if we're in a betting state (wait for betting interface to load)
+      const maxWaitTime = 5000; // 5 seconds
+      const startTime = Date.now();
+      let bettingInterfaceReady = false;
+      
+      while (Date.now() - startTime < maxWaitTime) {
+        const chipButtons = document.querySelectorAll('button[data-testid^="chip-stack-value-"]');
+        const playerArea = document.getElementById('leftBetTextRoot');
+        const bankerArea = document.getElementById('rightBetTextRoot');
+        
+        if (chipButtons.length > 0 && (playerArea || bankerArea)) {
+          bettingInterfaceReady = true;
+          break;
+        }
+        
+        await sleep(200);
+      }
+      
+      if (!bettingInterfaceReady) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: 'Betting interface not ready after 5 seconds',
+          platform,
+          amount,
+          side,
+          errorType: 'betting_interface_timeout'
+        });
+        return;
+      }
+
+      // Check if betting is currently allowed (not in a game round)
+      const bettingDisabled = document.querySelector('[class*="disabled"], [class*="betting-disabled"], [data-testid*="disabled"]');
+      if (bettingDisabled) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: 'Betting is currently disabled (game in progress)',
+          platform,
+          amount,
+          side,
+          errorType: 'betting_disabled'
+        });
+        return;
+      }
 
       // Step 1: Try to select the chip with the exact amount
       const chipSelector = `button[data-testid="chip-stack-value-${amount}"]`;
@@ -238,15 +427,30 @@
       if (!chipButton) {
         // Try to compose the amount using available chips
         const availableChips = getAvailableChips();
-        chipPlan = composeChips(amount, availableChips);
-        if (!chipPlan) {
-          console.error(`Cannot compose amount ${amount} with available chips.`);
+        
+        if (availableChips.length === 0) {
           chrome.runtime.sendMessage({
             type: 'betError',
-            message: `Cannot compose amount ${formatAmount(amount)} with available chips`,
+            message: 'No chip buttons found on the page',
             platform,
             amount,
             side,
+            errorType: 'no_chips_found'
+          });
+          return;
+        }
+        
+        chipPlan = composeChips(amount, availableChips);
+        if (!chipPlan) {
+          const availableValues = availableChips.map(chip => formatAmount(chip.value)).join(', ');
+          chrome.runtime.sendMessage({
+            type: 'betError',
+            message: `Cannot compose amount ${formatAmount(amount)} with available chips: ${availableValues}`,
+            platform,
+            amount,
+            side,
+            errorType: 'cannot_compose_amount',
+            availableChips: availableChips.map(chip => chip.value)
           });
           return;
         }
@@ -265,54 +469,147 @@
         betArea = document.getElementById('rightBetTextRoot');
       }
       if (!betArea) {
-        console.error(`Bet area not found for side: ${side}`);
-        chrome.runtime.sendMessage({
-          type: 'betError',
-          message: `Bet area not found for ${side}`,
-          platform,
-          amount,
-          side,
-        });
-        return;
+        // Try alternative selectors for bet areas
+        const alternativeSelectors = {
+          'Player': [
+            '[data-testid="player-bet-area"]',
+            '.player-bet-area',
+            '.left-bet-area',
+            '[data-side="player"]'
+          ],
+          'Banker': [
+            '[data-testid="banker-bet-area"]',
+            '.banker-bet-area',
+            '.right-bet-area',
+            '[data-side="banker"]'
+          ]
+        };
+        
+        const selectors = alternativeSelectors[side] || [];
+        for (const selector of selectors) {
+          betArea = document.querySelector(selector);
+          if (betArea) break;
+        }
+        
+        if (!betArea) {
+          chrome.runtime.sendMessage({
+            type: 'betError',
+            message: `Bet area not found for ${side}. Tried: leftBetTextRoot/rightBetTextRoot and alternative selectors`,
+            platform,
+            amount,
+            side,
+            errorType: 'bet_area_not_found',
+            triedSelectors: ['leftBetTextRoot', 'rightBetTextRoot', ...selectors]
+          });
+          return;
+        }
       }
 
       // Step 3: Place the bet(s)
-      if (chipButton) {
-        // Exact chip exists, use original logic
-        console.log(`[BetAutomation] About to click chip: ${amount}`);
-        chipButton.click();
-        await sleep(300);
-        const clickTarget = findClickableElement(betArea, side);
-        if (clickTarget) {
-          simulateClick(clickTarget);
-        } else {
-          simulateClick(betArea);
-        }
-      } else if (chipPlan) {
-        // Compose using multiple chips
-        for (const { chip, count } of chipPlan) {
-          // Select chip once
-          console.log(`[BetAutomation] Selecting chip: ${chip.value}`);
-          chip.btn.click();
-          await sleep(300); // Allow UI to register selected chip
-
-          const clickTarget = findClickableElement(betArea, side);
-          for (let i = 0; i < count; i++) {
-            console.log(
-              `[BetAutomation] Placing chip ${chip.value} - click ${i + 1}/${count}`,
-            );
-            if (clickTarget) {
-              simulateClick(clickTarget);
-            } else {
-              simulateClick(betArea);
-            }
-            await sleep(150); // Wait for bet to register
+      try {
+        if (chipButton) {
+          // Exact chip exists, use original logic
+          console.log(`[BetAutomation] About to click chip: ${amount}`);
+          
+          // Check if chip is enabled
+          if (chipButton.disabled || chipButton.hasAttribute('disabled')) {
+            chrome.runtime.sendMessage({
+              type: 'betError',
+              message: `Chip ${formatAmount(amount)} is disabled`,
+              platform,
+              amount,
+              side,
+              errorType: 'chip_disabled'
+            });
+            return;
           }
-        }
-      }
+          
+          chipButton.click();
+          await sleep(300);
+          const clickTarget = findClickableElement(betArea, side);
+          if (clickTarget) {
+            simulateClick(clickTarget);
+          } else {
+            simulateClick(betArea);
+          }
+        } else if (chipPlan) {
+          // Compose using multiple chips
+          for (const { chip, count } of chipPlan) {
+            // Check if chip is enabled
+            if (chip.btn.disabled || chip.btn.hasAttribute('disabled')) {
+              chrome.runtime.sendMessage({
+                type: 'betError',
+                message: `Chip ${formatAmount(chip.value)} is disabled`,
+                platform,
+                amount,
+                side,
+                errorType: 'chip_disabled',
+                chipValue: chip.value
+              });
+              return;
+            }
+            
+            // Select chip once
+            console.log(`[BetAutomation] Selecting chip: ${chip.value}`);
+            chip.btn.click();
+            await sleep(300); // Allow UI to register selected chip
 
-      // Wait for bet to be placed
-      await sleep(300);
+            const clickTarget = findClickableElement(betArea, side);
+            for (let i = 0; i < count; i++) {
+              console.log(
+                `[BetAutomation] Placing chip ${chip.value} - click ${i + 1}/${count}`,
+              );
+              if (clickTarget) {
+                simulateClick(clickTarget);
+              } else {
+                simulateClick(betArea);
+              }
+              await sleep(150); // Wait for bet to register
+            }
+          }
+        } else {
+          chrome.runtime.sendMessage({
+            type: 'betError',
+            message: 'No chip button or chip plan available',
+            platform,
+            amount,
+            side,
+            errorType: 'no_chip_available'
+          });
+          return;
+        }
+
+        // Wait for bet to be placed
+        await sleep(300);
+        
+        // Verify bet was placed by checking for bet confirmation or error messages
+        const errorMessages = document.querySelectorAll('[class*="error"], [class*="Error"], [data-testid*="error"]');
+        if (errorMessages.length > 0) {
+          const errorText = Array.from(errorMessages).map(el => el.textContent).join('; ');
+          chrome.runtime.sendMessage({
+            type: 'betError',
+            message: `Bet placement failed: ${errorText}`,
+            platform,
+            amount,
+            side,
+            errorType: 'bet_placement_failed',
+            errorDetails: errorText
+          });
+          return;
+        }
+        
+      } catch (betError) {
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          message: `Error during bet placement: ${betError.message}`,
+          platform,
+          amount,
+          side,
+          errorType: 'bet_placement_error',
+          errorDetails: betError.stack
+        });
+        return;
+      }
 
       // Send success message back to background script
       chrome.runtime.sendMessage({
@@ -325,13 +622,16 @@
       console.log('Bet placed successfully');
     } catch (error) {
       console.error('Error placing bet:', error);
-      // Send error back to background script
+      // Send detailed error back to background script
       chrome.runtime.sendMessage({
         type: 'betError',
-        message: `Error placing bet: ${error.message}`,
+        message: `Unexpected error placing bet: ${error.message}`,
         platform: platform,
         amount: amount,
         side: side,
+        errorType: 'unexpected_error',
+        errorDetails: error.stack,
+        timestamp: new Date().toISOString()
       });
     }
   }
