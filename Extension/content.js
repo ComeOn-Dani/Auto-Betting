@@ -72,6 +72,37 @@
     return window === window.top;
   }
 
+  // Track the last error sent to prevent duplicates
+  let lastErrorSent = null;
+  let lastErrorTime = 0;
+
+  // Helper function to safely send error messages (only when properly connected)
+  function sendBetError(errorData) {
+    // Only send error messages if we're active and in the main frame
+    if (isActive && isMainFrame()) {
+      const currentTime = Date.now();
+      
+      // Create a unique key for this error to prevent duplicates
+      // Include timestamp to make it more unique for rapid successive calls
+      const errorKey = `${errorData.errorType}_${errorData.platform}_${errorData.amount}_${errorData.side}_${Math.floor(currentTime / 1000)}`;
+      
+      // Only send if this is a different error or enough time has passed since the last error
+      if (lastErrorSent !== errorKey || (currentTime - lastErrorTime) > 3000) {
+        lastErrorSent = errorKey;
+        lastErrorTime = currentTime;
+        console.log(`[BetAutomation] Sending error: ${errorData.errorType || 'unknown'}`);
+        chrome.runtime.sendMessage({
+          type: 'betError',
+          ...errorData
+        });
+      } else {
+        console.log(`[BetAutomation] Ignoring duplicate error (too soon): ${errorData.errorType || 'unknown'}`);
+      }
+    } else {
+      console.log(`[BetAutomation] Ignoring error message - not active or not main frame. Active: ${isActive}, MainFrame: ${isMainFrame()}, ErrorType: ${errorData.errorType || 'unknown'}`);
+    }
+  }
+
   // Listen for bet commands from background script
   chrome.runtime.onMessage.addListener((request) => {
     switch (request.type) {
@@ -80,38 +111,28 @@
         if (isMainFrame()) {
           isActive = true;
           const bettingFrameResult = isBettingFrame();
-          console.log("bettingResult", bettingFrameResult);
+          console.log("[BetAutomation] Activated - bettingResult:", bettingFrameResult, "isActive:", isActive, "MainFrame:", isMainFrame());
           if (bettingFrameResult === true) {
             showIndicator();
-          } else if (bettingFrameResult === 'not_betting_time') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
-              message: 'You are on the right tab but it is not betting time. Please wait for the betting phase.',
-              errorType: 'not_betting_time'
-            });
-          } else if (bettingFrameResult === 'wrong_tab') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
-              message: 'You are not on the betting tab. Please navigate to the casino game.',
-              errorType: 'wrong_tab'
-            });
           }
+          // No error messages during activation - just activate silently
+        } else {
+          console.log("[BetAutomation] Ignoring activation - not main frame. MainFrame:", isMainFrame());
         }
         break;
       case 'deactivateBetAutomation':
         isActive = false;
         hideIndicator();
+        console.log("[BetAutomation] Deactivated - isActive:", isActive);
         break;
       case 'placeBet':
         // Only respond from the main frame to prevent duplicate responses
         if (isActive && isMainFrame()) {
-          console.log('[BetAutomation] Processing placeBet command in main frame');
           const bettingFrameResult = isBettingFrame();
           if (bettingFrameResult === true) {
             placeBet(request.platform, request.amount, request.side);
           } else if (bettingFrameResult === 'not_betting_time') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
+            sendBetError({
               message: 'Cannot place bet: You are on the right tab but it is not betting time. Please wait for the betting phase.',
               platform: request.platform,
               amount: request.amount,
@@ -119,8 +140,7 @@
               errorType: 'not_betting_time'
             });
           } else if (bettingFrameResult === 'wrong_tab') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
+            sendBetError({
               message: 'Cannot place bet: You are not on the betting tab. Please navigate to the casino game.',
               platform: request.platform,
               amount: request.amount,
@@ -140,14 +160,12 @@
           if (bettingFrameResult === true) {
             cancelBet();
           } else if (bettingFrameResult === 'not_betting_time') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
+            sendBetError({
               message: 'Cannot cancel bet: You are on the right tab but it is not betting time.',
               errorType: 'not_betting_time'
             });
           } else if (bettingFrameResult === 'wrong_tab') {
-            chrome.runtime.sendMessage({
-              type: 'betError',
+            sendBetError({
               message: 'Cannot cancel bet: You are not on the betting tab.',
               errorType: 'wrong_tab'
             });
@@ -723,8 +741,30 @@
         return;
       }
 
-      simulateClick(btn);
-      console.log('Clicked undo button to cancel bet');
+      // Click the undo button multiple times to remove all chips
+      let clickCount = 0;
+      const maxClicks = 20;
+      
+      while (clickCount < maxClicks) {
+        // Check if the undo button is still enabled (meaning there are still chips to remove)
+        if (btn.disabled || btn.hasAttribute('disabled')) {
+          console.log(`Undo button disabled after ${clickCount} clicks - all chips removed`);
+          break;
+        }
+        
+        simulateClick(btn);
+        clickCount++;
+        
+        // Wait a bit between clicks to allow the UI to update
+        await sleep(300);
+      }
+      
+      if (clickCount >= maxClicks) {
+        console.log(`Reached maximum clicks (${maxClicks}) - stopping undo operations`);
+      } else if (clickCount > 0) {
+        console.log(`Successfully cancelled bet with ${clickCount} undo clicks`);
+      }
+      
     } catch (err) {
       console.error('Error attempting to cancel bet:', err);
     }

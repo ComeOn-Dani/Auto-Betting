@@ -241,9 +241,9 @@ wss.on('connection', (ws, req) => {
             console.log(`Cleaned up bet tracking for room ${room.id}`);
           }, 5000);
         } else {
-          // Fallback for single PC bets or untracked bets
-          const oppositePC = data.pc === 'PC1' ? 'PC2' : 'PC1';
-          sendCancelBet(oppositePC, data.platform, data.amount, data.side, room);
+          // For single PC bets, don't automatically cancel the opposite PC
+          // This prevents the cascade of error messages
+          console.log(`Single PC bet failed on ${data.pc} - not cancelling opposite PC`);
         }
       }
 

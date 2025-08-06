@@ -26,6 +26,14 @@ const state = {
     PC1: false,
     PC2: false,
   },
+  // Track bet results for simultaneous betting
+  currentBetResults: {
+    PC1: null,
+    PC2: null,
+    betId: null
+  },
+  // Flag to track if we're currently in a bet session
+  isBetSessionActive: false
 };
 
 // DOM elements
@@ -104,6 +112,13 @@ function connectStatusWebSocket() {
     if (data.type === 'status') {
       updateConnectionStatus(data.connectedPCs);
     } else if (data.type === 'betError') {
+      // Filter out cancel bet errors when not in an active bet session
+      if (!state.isBetSessionActive && data.message && data.message.includes('Cannot cancel bet:')) {
+        // Skip logging and processing cancel bet errors when not in a bet session
+        console.log('[BetAutomation] Ignoring cancel bet error - no active bet session');
+        return;
+      }
+      
       // Handle different error types with appropriate user-friendly messages
       let userMessage = data.message;
       let logMessage = `Bet error from ${data.pc}: ${data.message}`;
@@ -154,11 +169,25 @@ function connectStatusWebSocket() {
       
       addLog(logMessage, 'error');
       
+      // Track bet result for simultaneous betting (only if we're in an active bet session)
+      if (state.isBetSessionActive && data.errorType !== 'cancel_bet_error') {
+        state.currentBetResults[data.pc] = 'error';
+        // Check if both PCs have completed
+        checkBetCompletion();
+      }
+      
       // Show a non-blocking notification with user-friendly message
       showErrorNotification(userMessage);
     } else if (data.type === 'betSuccess') {
       // Handle bet success
       addLog(`Bet success from ${data.pc}: ${formatAmount(data.amount)} on ${data.side}`, 'success');
+      
+      // Track bet result (only if we're in an active bet session)
+      if (state.isBetSessionActive) {
+        state.currentBetResults[data.pc] = 'success';
+        // Check if both PCs have completed
+        checkBetCompletion();
+      }
       
       // Show a brief success notification
       showSuccessNotification(`${data.pc}: Bet placed successfully`);
@@ -420,6 +449,29 @@ placeBetBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Reset bet results for new bet and start bet session
+  state.currentBetResults = {
+    PC1: null,
+    PC2: null,
+    betId: null
+  };
+  state.isBetSessionActive = true;
+  
+  console.log('[BetAutomation] Started bet session');
+  
+  // Auto-end bet session after 15 seconds to prevent it from staying active indefinitely
+  setTimeout(() => {
+    if (state.isBetSessionActive) {
+      addLog('Bet session timed out - ending session', 'info');
+      state.isBetSessionActive = false;
+      state.currentBetResults = {
+        PC1: null,
+        PC2: null,
+        betId: null
+      };
+    }
+  }, 15000);
+
   const betData = {
     platform: state.platform,
     pc: state.firstPC,
@@ -440,11 +492,11 @@ placeBetBtn.addEventListener('click', async () => {
     const result = await response.json();
 
     if (result.success) {
+      // For simultaneous betting, don't show immediate success
+      // Wait for actual bet results from WebSocket
       addLog(
-        `Bet placed: ${state.firstPC} - ${formatAmount(state.amount)} on ${
-          state.side
-        }`,
-        'success',
+        `Bet commands sent to both PCs - waiting for results...`,
+        'info',
       );
     } else {
       addLog(`Failed to place bet: ${result.message}`, 'error');
@@ -640,6 +692,43 @@ function updateCancelAllBtn() {
     cancelAllBtn.textContent = `Cancel All (${connectedPCs.join(', ')})`;
   } else {
     cancelAllBtn.textContent = 'Cancel All (No PCs Connected)';
+  }
+}
+
+// Check if both PCs have completed their bet attempts and show summary
+function checkBetCompletion() {
+  const pc1Result = state.currentBetResults.PC1;
+  const pc2Result = state.currentBetResults.PC2;
+  
+  // Only show summary if both PCs have completed
+  if (pc1Result && pc2Result) {
+    let summaryMessage = 'Bet completion summary: ';
+    let summaryType = 'info';
+    
+    if (pc1Result === 'success' && pc2Result === 'success') {
+      summaryMessage += 'Both PCs successfully placed bets';
+      summaryType = 'success';
+    } else if (pc1Result === 'success' && pc2Result === 'error') {
+      summaryMessage += 'PC1 succeeded, PC2 failed';
+      summaryType = 'error';
+    } else if (pc1Result === 'error' && pc2Result === 'success') {
+      summaryMessage += 'PC1 failed, PC2 succeeded';
+      summaryType = 'error';
+    } else {
+      summaryMessage += 'Both PCs failed to place bets';
+      summaryType = 'error';
+    }
+    
+    addLog(summaryMessage, summaryType);
+    
+    // Reset bet results and end bet session
+    state.currentBetResults = {
+      PC1: null,
+      PC2: null,
+      betId: null
+    };
+    state.isBetSessionActive = false;
+    console.log('[BetAutomation] Ended bet session');
   }
 }
 

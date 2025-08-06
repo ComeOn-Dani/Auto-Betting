@@ -312,6 +312,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === 'betError') {
     // Forward error message to controller with enhanced details
     if (ws && ws.readyState === WebSocket.OPEN && pcName) {
+      const errorType = request.errorType || 'unknown';
+      
+      // Only send error messages if we're actually connected and have a PC name
+      console.log(`[BetAutomation] Sending bet error: ${errorType}`);
       ws.send(
         JSON.stringify({
           type: 'betError',
@@ -320,7 +324,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           platform: request.platform,
           amount: request.amount,
           side: request.side,
-          errorType: request.errorType || 'unknown',
+          errorType: errorType,
           errorDetails: request.errorDetails || null,
           availableChips: request.availableChips || null,
           triedSelectors: request.triedSelectors || null,
@@ -328,6 +332,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           timestamp: request.timestamp || new Date().toISOString()
         }),
       );
+    } else {
+      console.log(`[BetAutomation] Ignoring bet error - not connected or no PC name. WS: ${!!ws}, PC: ${pcName}`);
     }
   } else if (request.type === 'getConnectionStatus') {
     sendResponse({
