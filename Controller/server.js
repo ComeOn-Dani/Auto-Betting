@@ -104,6 +104,35 @@ wss.on('connection', (ws, req) => {
           ws.close();
           return;
         }
+        
+        // Check license status
+        const userRecord = USERS[payload.user];
+        if (userRecord) {
+          const currentDate = new Date().toISOString().split('T')[0];
+          
+          // Check if user has no license
+          if (!userRecord.licenseEndDate) {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              message: 'No license found. Please contact administrator to purchase a license.',
+              noLicense: true 
+            }));
+            ws.close();
+            return;
+          }
+          
+          // Check if license is expired
+          if (currentDate > userRecord.licenseEndDate) {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              message: 'License expired. Please contact administrator to renew your license.',
+              licenseExpired: true 
+            }));
+            ws.close();
+            return;
+          }
+        }
+        
         clientUser = payload.user;
         room = getRoom(clientUser);
         // proceed; do not process further this initial hello
@@ -592,14 +621,54 @@ app.post('/api/login', (req, res) => {
   if (!bcrypt.compareSync(password, userRecord.passwordHash)) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
+  
+  // Check license status
+  const licenseEndDate = userRecord.licenseEndDate;
+  const currentDate = new Date().toISOString().split('T')[0];
+  
+  // Check if user has no license
+  if (!licenseEndDate) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'No license found. Please contact administrator to purchase a license.',
+      noLicense: true 
+    });
+  }
+  
+  // Check if license is expired
+  if (currentDate > licenseEndDate) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'License expired. Please contact administrator to renew your license.',
+      licenseExpired: true 
+    });
+  }
+  
   const token = generateAccessToken(username);
-  return res.json({ success: true, token });
+  return res.json({ 
+    success: true, 
+    token,
+    licenseEndDate: licenseEndDate || null
+  });
 });
 
 // ---------------- Admin APIs ----------------
-// Get all users (admin only)
+// Get all users with license info (admin only)
 app.get('/api/users', authAdmin, (req, res) => {
-  res.json(Object.keys(USERS));
+  const usersWithLicense = Object.keys(USERS).map(username => {
+    const user = USERS[username];
+    const currentDate = new Date().toISOString().split('T')[0];
+    const licenseEndDate = user.licenseEndDate;
+    const isExpired = licenseEndDate && currentDate > licenseEndDate;
+    
+    return {
+      username,
+      licenseEndDate: licenseEndDate || 'No License',
+      isExpired,
+      status: isExpired ? 'Expired' : (licenseEndDate ? 'Active' : 'No License')
+    };
+  });
+  res.json(usersWithLicense);
 });
 
 // Add new user
@@ -611,7 +680,10 @@ app.post('/api/users', authAdmin, (req, res) => {
   if (USERS[username]) {
     return res.status(409).json({ success: false, message: 'User already exists' });
   }
-  USERS[username] = { passwordHash: bcrypt.hashSync(password, 10) };
+  USERS[username] = { 
+    passwordHash: bcrypt.hashSync(password, 10),
+    licenseEndDate: null // New users start without license
+  };
   saveUsers();
   return res.json({ success: true });
 });
@@ -630,9 +702,89 @@ app.delete('/api/users/:username', authAdmin, (req, res) => {
 app.put('/api/users/admin', authAdmin, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ success: false, message: 'Password required' });
-  USERS['admin'] = { passwordHash: bcrypt.hashSync(password, 10) };
+  USERS['admin'] = { 
+    passwordHash: bcrypt.hashSync(password, 10),
+    licenseEndDate: USERS['admin'].licenseEndDate // Preserve existing license
+  };
   saveUsers();
   return res.json({ success: true });
+});
+
+// Extend user license
+app.put('/api/users/:username/license', authAdmin, (req, res) => {
+  const { username } = req.params;
+  const { months } = req.body;
+  
+  if (!USERS[username]) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+  
+  if (!months || isNaN(months) || months <= 0) {
+    return res.status(400).json({ success: false, message: 'Valid number of months required' });
+  }
+  
+  // Calculate new end date
+  const currentDate = new Date();
+  const newEndDate = new Date(currentDate);
+  newEndDate.setMonth(newEndDate.getMonth() + parseInt(months));
+  
+  // If user already has a license, extend from the current end date
+  if (USERS[username].licenseEndDate) {
+    const currentEndDate = new Date(USERS[username].licenseEndDate);
+    if (currentEndDate > currentDate) {
+      // License is still active, extend from current end date
+      newEndDate.setTime(currentEndDate.getTime());
+      newEndDate.setMonth(newEndDate.getMonth() + parseInt(months));
+    }
+  }
+  
+  USERS[username].licenseEndDate = newEndDate.toISOString().split('T')[0];
+  saveUsers();
+  
+  return res.json({ 
+    success: true, 
+    message: `License extended by ${months} month(s)`,
+    newEndDate: USERS[username].licenseEndDate
+  });
+});
+
+// Get current user's license info
+app.get('/api/user/license', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) return res.status(401).json({ success: false, message: 'Missing token' });
+  const token = authHeader.split(' ')[1];
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ success: false, message: 'Invalid token' });
+  }
+  
+  const username = payload.user;
+  const userRecord = USERS[username];
+  
+  if (!userRecord) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+  
+  const currentDate = new Date().toISOString().split('T')[0];
+  const licenseEndDate = userRecord.licenseEndDate;
+  
+  // Check if user has no license
+  if (!licenseEndDate) {
+    return res.status(403).json({
+      success: false,
+      message: 'No license found. Please contact administrator to purchase a license.',
+      noLicense: true
+    });
+  }
+  
+  const isExpired = currentDate > licenseEndDate;
+  
+  return res.json({
+    success: true,
+    licenseEndDate: licenseEndDate,
+    isExpired,
+    status: isExpired ? 'Expired' : 'Active'
+  });
 });
 
 // Start Express server

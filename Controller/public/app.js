@@ -61,6 +61,173 @@ const cancelAllBtn = document.getElementById('cancel-all');
 const logoutBtn = document.getElementById('logout-btn');
 const adminBtn = document.getElementById('admin-btn');
 
+// Check if token is valid
+function isTokenValid(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const currentTime = Math.floor(Date.now() / 1000);
+    return payload.exp > currentTime;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Display license information
+async function displayLicenseInfo() {
+  const licenseInfoEl = document.getElementById('license-info');
+  const licenseStatusBar = document.getElementById('license-status-bar');
+  
+      // Check token validity first
+    if (!isTokenValid(storedToken)) {
+      console.log('Token is invalid or expired, logging out...');
+      licenseInfoEl.innerHTML = `<span style="color: #f44336; background: rgba(244, 67, 54, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">Session Expired</span>`;
+      licenseStatusBar.style.display = 'block';
+      licenseStatusBar.style.backgroundColor = '#f44336';
+      licenseStatusBar.style.color = 'white';
+      licenseStatusBar.innerHTML = `⚠️ SESSION EXPIRED - Redirecting to login...`;
+      
+      // Immediate logout for invalid token
+      setTimeout(() => forceLogout('Invalid token'), 1000);
+      return;
+    }
+  
+  try {
+    const response = await fetch('/api/user/license', {
+      headers: {
+        'Authorization': `Bearer ${storedToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      if (data.success) {
+        if (data.licenseEndDate) {
+          if (data.isExpired) {
+            // Show expired license prominently
+            licenseInfoEl.innerHTML = `<span style="color: #f44336; background: rgba(244, 67, 54, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Expired: ${data.licenseEndDate}</span>`;
+            licenseStatusBar.style.display = 'block';
+            licenseStatusBar.style.backgroundColor = '#f44336';
+            licenseStatusBar.style.color = 'white';
+            licenseStatusBar.innerHTML = `⚠️ LICENSE EXPIRED (${data.licenseEndDate}) - You will be logged out automatically`;
+            
+            // Auto logout for expired license
+            setTimeout(() => {
+              alert('Your license has expired. You will be logged out automatically.');
+              forceLogout('License expired');
+            }, 3000);
+          } else {
+            // Show valid license
+            licenseInfoEl.innerHTML = `<span style="color: #4caf50; background: rgba(76, 175, 80, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Valid: ${data.licenseEndDate}</span>`;
+            licenseStatusBar.style.display = 'none';
+          }
+        } else {
+          // Show no license
+          licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">No License</span>`;
+          licenseStatusBar.style.display = 'block';
+          licenseStatusBar.style.backgroundColor = '#ff9800';
+          licenseStatusBar.style.color = 'white';
+          licenseStatusBar.innerHTML = `⚠️ NO LICENSE FOUND - You will be logged out automatically`;
+          
+          // Auto logout for no license
+          setTimeout(() => {
+            alert('No license found. You will be logged out automatically.');
+            forceLogout('No license');
+          }, 3000);
+        }
+      } else {
+        licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Error</span>`;
+        licenseStatusBar.style.display = 'block';
+        licenseStatusBar.style.backgroundColor = '#ff9800';
+        licenseStatusBar.style.color = 'white';
+        licenseStatusBar.innerHTML = `⚠️ LICENSE ERROR - Please contact administrator`;
+      }
+    } else if (response.status === 401) {
+      // Invalid token - logout immediately
+      console.log('Invalid token detected, logging out...');
+      licenseInfoEl.innerHTML = `<span style="color: #f44336; background: rgba(244, 67, 54, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">Session Expired</span>`;
+      licenseStatusBar.style.display = 'block';
+      licenseStatusBar.style.backgroundColor = '#f44336';
+      licenseStatusBar.style.color = 'white';
+      licenseStatusBar.innerHTML = `⚠️ SESSION EXPIRED - Redirecting to login...`;
+      
+      // Immediate logout for invalid token
+      setTimeout(() => forceLogout('Invalid token'), 1000);
+    } else if (response.status === 403) {
+      // License issue - check if it's no license or expired
+      const data = await response.json();
+      if (data.noLicense) {
+        licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">No License</span>`;
+        licenseStatusBar.style.display = 'block';
+        licenseStatusBar.style.backgroundColor = '#ff9800';
+        licenseStatusBar.style.color = 'white';
+        licenseStatusBar.innerHTML = `⚠️ NO LICENSE FOUND - You will be logged out automatically`;
+        
+        // Auto logout for no license
+        setTimeout(() => {
+          alert('No license found. You will be logged out automatically.');
+          forceLogout('No license');
+        }, 3000);
+      } else {
+        licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Error</span>`;
+        licenseStatusBar.style.display = 'block';
+        licenseStatusBar.style.backgroundColor = '#ff9800';
+        licenseStatusBar.style.color = 'white';
+        licenseStatusBar.innerHTML = `⚠️ LICENSE ERROR - Please contact administrator`;
+      }
+    } else {
+      licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Error</span>`;
+      licenseStatusBar.style.display = 'block';
+      licenseStatusBar.style.backgroundColor = '#ff9800';
+      licenseStatusBar.style.color = 'white';
+      licenseStatusBar.innerHTML = `⚠️ LICENSE ERROR - Please contact administrator`;
+    }
+  } catch (error) {
+    console.error('Error fetching license info:', error);
+    
+    // Check if it's a network error or server error
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      // Network error - show warning but don't logout
+      licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">Network Error</span>`;
+      licenseStatusBar.style.display = 'block';
+      licenseStatusBar.style.backgroundColor = '#ff9800';
+      licenseStatusBar.style.color = 'white';
+      licenseStatusBar.innerHTML = `⚠️ NETWORK ERROR - Cannot verify license status`;
+    } else {
+      // Other errors - show generic error
+      licenseInfoEl.innerHTML = `<span style="color: #ff9800; background: rgba(255, 152, 0, 0.1); padding: 0.3rem 0.6rem; border-radius: 3px;">License Error</span>`;
+      licenseStatusBar.style.display = 'block';
+      licenseStatusBar.style.backgroundColor = '#ff9800';
+      licenseStatusBar.style.color = 'white';
+      licenseStatusBar.innerHTML = `⚠️ LICENSE ERROR - Please contact administrator`;
+    }
+  }
+}
+
+// Force logout function
+function forceLogout(reason = 'Session expired') {
+  console.log(`Force logout: ${reason}`);
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('licenseEndDate');
+  window.location.href = 'login.html';
+}
+
+// Initialize license display immediately
+displayLicenseInfo();
+
+// Check license periodically (every 5 minutes)
+setInterval(displayLicenseInfo, 5 * 60 * 1000);
+
+// Also check license every minute for expired licenses
+setInterval(() => {
+  const licenseInfoEl = document.getElementById('license-info');
+  const licenseText = licenseInfoEl.textContent;
+  if (licenseText.includes('Expired') || licenseText.includes('No License')) {
+    displayLicenseInfo(); // Re-check immediately
+  }
+}, 60 * 1000);
+
 if (currentUser==='admin'){
   adminBtn.style.display='inline-block';
   adminBtn.addEventListener('click',()=>{

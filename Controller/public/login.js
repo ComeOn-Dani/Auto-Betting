@@ -9,7 +9,7 @@ document.getElementById('login-btn').addEventListener('click', async () => {
   const errorEl = document.getElementById('error');
   errorEl.textContent = '';
   if (!username || !password) {
-    errorEl.textContent = 'Please enter username and password';
+    errorEl.innerHTML = `<span style="color: #f44336; font-weight: bold;">Please enter username and password</span>`;
     return;
   }
   try {
@@ -19,11 +19,21 @@ document.getElementById('login-btn').addEventListener('click', async () => {
       body: JSON.stringify({ username, password }),
     });
     const data = await res.json();
+    console.log("data", data);
     if (!data.success) {
-      errorEl.textContent = data.message || 'Login failed';
+      if (data.licenseExpired) {
+        errorEl.innerHTML = `<span style="color: #f44336; font-weight: bold;">${data.message}</span>`;
+      } else if (data.noLicense) {
+        errorEl.innerHTML = `<span style="color: #ff9800; font-weight: bold;">${data.message}</span>`;
+      } else {
+        errorEl.innerHTML = data.message ? `<span style="color: #f44336; font-weight: bold;">${data.message}</span>` : `<span style="color: #f44336; font-weight: bold;">Login failed</span>`;
+      }
       return;
     }
     localStorage.setItem('accessToken', data.token);
+    if (data.licenseEndDate) {
+      localStorage.setItem('licenseEndDate', data.licenseEndDate);
+    }
     // redirect to controller
     window.location.href = 'index.html';
   } catch (err) {
