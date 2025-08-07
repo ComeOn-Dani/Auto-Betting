@@ -12,11 +12,13 @@
     <!-- License Status Bar -->
     <div id="license-status-bar" style="position: fixed; top: 0; left: 0; right: 0; padding: 0.5rem; text-align: center; font-weight: bold; z-index: 1000; display: none;"></div>
     
-    <div class="container">
+    <div class="container" style="position: relative;">
+        <!-- License Info in Container Top Right -->
+        <div id="license-info" style="position: absolute; top: 10px; right: 10px; font-size: 0.9rem; padding: 0.5rem 1rem; border-radius: 4px; font-weight: bold; z-index: 1001; max-width: 300px; text-align: center;"></div>
+        
         <div style="display:flex;justify-content:space-between;align-items:center">
             <h1>Bet Automation Controller</h1>
             <div style="display:flex;gap:0.5rem;align-items:center">
-              <div id="license-info" style="font-size: 0.9rem; margin-right: 1rem; padding: 0.5rem 1rem; border-radius: 4px; font-weight: bold;"></div>
               <button id="admin-btn" class="btn-admin" style="display:none">Admin</button>
               <button id="logout-btn" class="btn-danger">Logout</button>
             </div>
