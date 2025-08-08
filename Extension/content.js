@@ -14,21 +14,37 @@
 
   // Helper – check if this frame actually contains the betting UI
   function isBettingFrame() {
-    const betAreas = document.querySelector('#leftBetTextRoot, #rightBetTextRoot');
-    const chipButtons = document.querySelector('button[data-testid^="chip-stack-value-"]');
+    // Check for betting areas with multiple possible selectors
+    const betAreas = document.querySelector('#leftBetTextRoot, #rightBetTextRoot, [data-testid*="player"], [data-testid*="banker"], .player-bet, .banker-bet, .bet-area');
     
-    // Both exist - we're in betting frame and it's betting time
+    // Check for chip buttons with multiple possible selectors
+    const chipButtons = document.querySelector('button[data-testid^="chip-stack-value-"], button[data-testid*="chip"], .chip-button, [class*="chip"]');
+    
+    // Additional checks for casino-related elements
+    const casinoElements = document.querySelector('[class*="baccarat"], [class*="casino"], [class*="game"], [data-testid*="game"]');
+    
+    // Debug logging for troubleshooting
+    if (window.location.href.includes('casino') || window.location.href.includes('game') || window.location.href.includes('baccarat')) {
+      console.log('[BetAutomation] Frame check - betAreas:', !!betAreas, 'chipButtons:', !!chipButtons, 'casinoElements:', !!casinoElements, 'URL:', window.location.href);
+    }
+    
+    // Both betting areas and chip buttons exist - we're in betting frame and it's betting time
     if (betAreas && chipButtons) {
       return true;
     }
     
-    // Only bet areas exist - we're on the right tab but not betting time
+    // Only betting areas exist - we're on the right tab but not betting time
     if (betAreas && !chipButtons) {
       return 'not_betting_time';
     }
     
+    // Casino elements exist but no betting areas - might be in game but not betting phase
+    if (casinoElements && !betAreas) {
+      return 'not_betting_time';
+    }
+    
     // Neither exist - we're in a different tab
-    if (!betAreas && !chipButtons) {
+    if (!betAreas && !chipButtons && !casinoElements) {
       return 'wrong_tab';
     }
     
@@ -67,9 +83,25 @@
     document.body.appendChild(indicator);
   }
 
-  // Helper function to check if this is the main frame (not an iframe)
-  function isMainFrame() {
-    return window === window.top;
+  // Helper function to check if this frame can process betting commands
+  function canProcessBetting() {
+    const bettingFrameResult = isBettingFrame();
+
+    // Betting frame can always process
+    if (bettingFrameResult === true) {
+      return true;
+    }
+
+    // Allow not_betting_time only if this frame actually has bet areas (i.e., game frame)
+    if (bettingFrameResult === 'not_betting_time') {
+      const betAreasPresent = !!document.querySelector('#leftBetTextRoot, #rightBetTextRoot, [data-testid*="player"], [data-testid*="banker"], .player-bet, .banker-bet, .bet-area');
+      if (betAreasPresent) {
+        return true;
+      }
+    }
+
+    // Otherwise, don't process (no betting elements or not the right frame)
+    return false;
   }
 
   // Track the last error sent to prevent duplicates
@@ -78,8 +110,8 @@
 
   // Helper function to safely send error messages (only when properly connected)
   function sendBetError(errorData) {
-    // Only send error messages if we're active and in the main frame
-    if (isActive && isMainFrame()) {
+    // Only send error messages if we're active and can process betting
+    if (isActive && canProcessBetting()) {
       const currentTime = Date.now();
       
       // Create a unique key for this error to prevent duplicates
@@ -99,7 +131,7 @@
         console.log(`[BetAutomation] Ignoring duplicate error (too soon): ${errorData.errorType || 'unknown'}`);
       }
     } else {
-      console.log(`[BetAutomation] Ignoring error message - not active or not main frame. Active: ${isActive}, MainFrame: ${isMainFrame()}, ErrorType: ${errorData.errorType || 'unknown'}`);
+      console.log(`[BetAutomation] Ignoring error message - not active or cannot process betting. Active: ${isActive}, CanProcess: ${canProcessBetting()}, ErrorType: ${errorData.errorType || 'unknown'}`);
     }
   }
 
@@ -107,18 +139,14 @@
   chrome.runtime.onMessage.addListener((request) => {
     switch (request.type) {
       case 'activateBetAutomation':
-        // Only respond from the main frame to prevent duplicate responses
-        if (isMainFrame()) {
-          isActive = true;
-          const bettingFrameResult = isBettingFrame();
-          console.log("[BetAutomation] Activated - bettingResult:", bettingFrameResult, "isActive:", isActive, "MainFrame:", isMainFrame());
-          if (bettingFrameResult === true) {
-            showIndicator();
-          }
-          // No error messages during activation - just activate silently
-        } else {
-          console.log("[BetAutomation] Ignoring activation - not main frame. MainFrame:", isMainFrame());
+        // Always mark active on activation; processing remains gated by canProcessBetting()
+        isActive = true;
+        const bettingFrameResult = isBettingFrame();
+        console.log("[BetAutomation] Activated - bettingResult:", bettingFrameResult, "isActive:", isActive, "CanProcess:", canProcessBetting());
+        if (bettingFrameResult === true) {
+          showIndicator();
         }
+        // No error messages during activation - just activate silently
         break;
       case 'deactivateBetAutomation':
         isActive = false;
@@ -126,49 +154,47 @@
         console.log("[BetAutomation] Deactivated - isActive:", isActive);
         break;
       case 'placeBet':
-        // Only respond from the main frame to prevent duplicate responses
-        if (isActive && isMainFrame()) {
+        // Only respond from frames that can process betting to prevent duplicate responses
+        if (isActive && canProcessBetting()) {
           const bettingFrameResult = isBettingFrame();
           if (bettingFrameResult === true) {
             placeBet(request.platform, request.amount, request.side);
           } else if (bettingFrameResult === 'not_betting_time') {
-            sendBetError({
-              message: 'Cannot place bet: You are on the right tab but it is not betting time. Please wait for the betting phase.',
-              platform: request.platform,
-              amount: request.amount,
-              side: request.side,
-              errorType: 'not_betting_time'
-            });
+            const betAreasPresent = !!document.querySelector('#leftBetTextRoot, #rightBetTextRoot, [data-testid*="player"], [data-testid*="banker"], .player-bet, .banker-bet, .bet-area');
+            // If there are no bet areas and we're in the top window, treat this as wrong_tab for controller clarity
+            if (betAreasPresent) {
+              sendBetError({
+                message: 'Cannot place bet: You are on the right tab but it is not betting time. Please wait for the betting phase.',
+                platform: request.platform,
+                amount: request.amount,
+                side: request.side,
+                errorType: 'not_betting_time'
+              });
+            } // if no bet areas in this frame, ignore; another frame or controller timeout will handle
           } else if (bettingFrameResult === 'wrong_tab') {
-            sendBetError({
-              message: 'Cannot place bet: You are not on the betting tab. Please navigate to the casino game.',
-              platform: request.platform,
-              amount: request.amount,
-              side: request.side,
-              errorType: 'wrong_tab'
-            });
+            // Do not emit wrong_tab from content script; controller/background handles site-not-found via timeout
           }
         } else {
-          console.log('[BetAutomation] Ignoring placeBet command - not active or not main frame');
+          console.log('[BetAutomation] Ignoring placeBet command - not active or cannot process betting');
         }
         break;
       case 'cancelBet':
-        // Only respond from the main frame to prevent duplicate responses
-        if (isActive && isMainFrame()) {
-          console.log('[BetAutomation] Processing cancelBet command in main frame');
+        // Only respond from frames that can process betting to prevent duplicate responses
+        if (isActive && canProcessBetting()) {
+          console.log('[BetAutomation] Processing cancelBet command in betting frame');
           const bettingFrameResult = isBettingFrame();
           if (bettingFrameResult === true) {
             cancelBet();
           } else if (bettingFrameResult === 'not_betting_time') {
-            sendBetError({
-              message: 'Cannot cancel bet: You are on the right tab but it is not betting time.',
-              errorType: 'not_betting_time'
-            });
+            const betAreasPresent = !!document.querySelector('#leftBetTextRoot, #rightBetTextRoot, [data-testid*="player"], [data-testid*="banker"], .player-bet, .banker-bet, .bet-area');
+            if (betAreasPresent) {
+              sendBetError({
+                message: 'Cannot cancel bet: You are on the right tab but it is not betting time.',
+                errorType: 'not_betting_time'
+              });
+            } // else ignore; controller/background handles via timeout
           } else if (bettingFrameResult === 'wrong_tab') {
-            sendBetError({
-              message: 'Cannot cancel bet: You are not on the betting tab.',
-              errorType: 'wrong_tab'
-            });
+            // Do not emit wrong_tab from content script
           }
         } else {
           console.log('[BetAutomation] Ignoring cancelBet command - not active or not main frame');

@@ -56,4 +56,13 @@ chrome.runtime.onMessage.addListener((msg)=>{
   if(msg.type==='statusUpdate'){
     setToggleState(msg.connected);
   }
+  if(msg.type==='autoLogout'){
+    // Force UI to logged-out state
+    chrome.storage.local.remove('accessToken',()=>{
+      updateUI(false);
+      setToggleState(false);
+      const err = document.getElementById('err');
+      if(err){err.textContent= msg.reason || 'Session expired. Please login again.';}
+    });
+  }
 }); 

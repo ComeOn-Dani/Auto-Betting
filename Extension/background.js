@@ -28,6 +28,23 @@ let watchdogInterval = null;
 let lastServerMsg = Date.now();
 const WATCHDOG_INTERVAL = 15000; // 15 seconds
 
+function autoLogout(reason = 'Invalid token') {
+  try {
+    console.warn('Auto-logout triggered:', reason);
+    // Disconnect and deactivate everywhere
+    disconnect();
+    // Clear access token
+    chrome.storage.local.remove('accessToken');
+    // Reset flags and icon
+    slotOccupied = false;
+    updateIcon(false);
+    // Inform popup so it switches to login UI
+    chrome.runtime.sendMessage({ type: 'autoLogout', reason }).catch(() => {});
+  } catch (e) {
+    console.error('autoLogout error:', e);
+  }
+}
+
 // Helper: broadcast a runtime message to all tabs (best-effort)
 async function broadcastToAllTabs(msg) {
   try {
@@ -246,6 +263,10 @@ function connectWebSocket() {
       });
     } else if (data.type === 'error') {
       console.error('Server error:', data.message);
+      if (data.message && /invalid token/i.test(data.message)) {
+        autoLogout('Invalid token from server');
+        return;
+      }
       if (data.message && data.message.includes('Both PC slots')) {
         slotOccupied = true;
         // show chrome notification
@@ -379,7 +400,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       .then(() => {
         chrome.tabs.sendMessage(tabId, { type: 'activateBetAutomation' }).catch(() => {});
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.log('Failed reinjecting content after update:', err?.message || err);
+      });
   }
 });
 
