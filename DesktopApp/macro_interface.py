@@ -49,6 +49,7 @@ class MacroInterface:
                 # Load positions
                 for name, pos_data in data.get('positions', {}).items():
                     self.positions[name] = Position(**pos_data)
+                    print(f"Loaded position: {name} at ({pos_data['x']}, {pos_data['y']})")
                     
                 # Load chips
                 self.chips = []
@@ -58,8 +59,14 @@ class MacroInterface:
                         amount=chip_data['amount'],
                         position=position
                     ))
+                    print(f"Loaded chip: {chip_data['amount']} at ({position.x}, {position.y})")
+                
+                print(f"Configuration loaded successfully from {self.config_path}")
+                print(f"Loaded {len(self.positions)} positions and {len(self.chips)} chips")
             except Exception as e:
                 print(f"Error loading config: {e}")
+        else:
+            print(f"Config file not found: {self.config_path}")
     
     def save_config(self):
         """Save current positions and chip configurations"""
@@ -71,6 +78,12 @@ class MacroInterface:
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(data, f, indent=2)
+            print(f"Configuration saved successfully to {self.config_path}")
+            print(f"Saved {len(self.positions)} positions and {len(self.chips)} chips")
+            for name, pos in self.positions.items():
+                print(f"  - {name}: ({pos.x}, {pos.y})")
+            for chip in self.chips:
+                print(f"  - Chip {chip.amount}: ({chip.position.x}, {chip.position.y})")
         except Exception as e:
             print(f"Error saving config: {e}")
     
@@ -87,7 +100,7 @@ class MacroInterface:
         
         # Create the window
         self.selection_window = tk.Toplevel()
-        self.selection_window.title("Position Selection")
+        self.selection_window.title("Configure Macro Positions")
         self.selection_window.geometry("560x720")
         self.selection_window.resizable(False, False)
         
@@ -601,101 +614,66 @@ class MacroInterface:
             raise
     
     def _on_overlay_click(self, event):
-        """Handle click on overlay window"""
-        if self.selection_mode == SelectionMode.NONE:
-            return
+        """Handle click on overlay to set position"""
+        x, y = event.x_root, event.y_root
+        print(f"Position selected: ({x}, {y}) for mode: {self.selection_mode}")  # Debug
         
         # Clear the mouse circle
         if hasattr(self, 'mouse_canvas') and self.mouse_canvas:
             self.mouse_canvas.delete("mouse_circle")
         
-        # Get click position relative to screen (absolute coordinates)
-        x, y = event.x_root, event.y_root
-        
-        # Debug information
-        print(f"Click captured: event.x={event.x}, event.y={event.y}")
-        print(f"Screen coordinates: event.x_root={event.x_root}, event.y_root={event.y_root}")
-        print(f"Final position stored: ({x}, {y})")
-        
-        # Create position with default size (can be adjusted later)
-        position = Position(x=x, y=y, width=50, height=50, name="")
-        
-        # Store position based on mode
+        # Store position based on selection mode
         if self.selection_mode == SelectionMode.PLAYER_AREA:
-            self.positions['player_area'] = position
-            print(f"Stored Player area at: ({x}, {y})")
+            self.positions['player_area'] = Position(x=x, y=y, width=50, height=50, name='player_area')
+            print(f"Player area set at ({x}, {y})")
         elif self.selection_mode == SelectionMode.BANKER_AREA:
-            self.positions['banker_area'] = position
-            print(f"Stored Banker area at: ({x}, {y})")
+            self.positions['banker_area'] = Position(x=x, y=y, width=50, height=50, name='banker_area')
+            print(f"Banker area set at ({x}, {y})")
         elif self.selection_mode == SelectionMode.CANCEL_BUTTON:
-            self.positions['cancel_button'] = position
-            print(f"Stored Cancel button at: ({x}, {y})")
+            self.positions['cancel_button'] = Position(x=x, y=y, width=50, height=50, name='cancel_button')
+            print(f"Cancel button set at ({x}, {y})")
         elif self.selection_mode == SelectionMode.CHIP:
-            # For chips, use the pending amount or get it from user
-            if hasattr(self, '_pending_chip_amount'):
+            if hasattr(self, '_pending_chip_amount') and self._pending_chip_amount:
                 amount = self._pending_chip_amount
-                delattr(self, '_pending_chip_amount')  # Clear the pending amount
-            else:
-                # Fallback: get amount from user
-                self._get_chip_amount_and_save(x, y)
-                return
-
-            # Save the chip position
-            position = Position(x=x, y=y, width=50, height=50, name=f"chip_{amount}")
-
-            # Check if chip already exists
-            existing_chip = next((chip for chip in self.chips if chip.amount == amount), None)
-            if existing_chip:
-                existing_chip.position = position
-                print(f"Updated chip {amount} position to: ({x}, {y})")
-            else:
-                self.chips.append(ChipConfig(amount=amount, position=position))
-                print(f"Added new chip {amount} at: ({x}, {y})")
-
-            # Hide overlay and update UI
-            # Release grab if set
-            try:
-                if self.overlay_window:
-                    self.overlay_window.grab_release()
-            except:
-                pass
+                position = Position(x=x, y=y, width=50, height=50, name=f"chip_{amount}")
                 
-            self.overlay_window.withdraw()
-            self.selection_mode = SelectionMode.NONE
-            
-            # Restore the configuration window and main window
-            try:
-                import tkinter as tk
-                if self.selection_window:
-                    self.selection_window.deiconify()
-                    self.selection_window.lift()
-                    self.selection_window.focus_force()
-                    root = self.selection_window.master
-                    if isinstance(root, tk.Tk):
-                        root.deiconify()
-                        root.lift()
-                        root.focus_force()
-            except Exception:
-                pass
-            
-            self._update_status_displays()
-            self._refresh_chips_list()
-            return
+                # Check if chip already exists
+                existing_chip = next((chip for chip in self.chips if chip.amount == amount), None)
+                if existing_chip:
+                    existing_chip.position = position
+                    print(f"Updated chip {amount} position to ({x}, {y})")
+                else:
+                    self.chips.append(ChipConfig(amount=amount, position=position))
+                    print(f"Added new chip {amount} at ({x}, {y})")
+                
+                # Clear pending amount
+                self._pending_chip_amount = None
+                
+                # Handle reselecting chip
+                if hasattr(self, '_reselecting_chip') and self._reselecting_chip:
+                    self._reselecting_chip = None
         
-        # Hide overlay and update UI
+        # Auto-save configuration after each position is set
+        self.save_config()
+        
+        # Properly reset selection mode and release grab
+        print(f"Resetting selection mode from {self.selection_mode} to NONE")  # Debug
+        self.selection_mode = SelectionMode.NONE
+        
         # Release grab if set
         try:
             if self.overlay_window:
                 self.overlay_window.grab_release()
+                print("Released overlay grab")  # Debug
         except:
             pass
-            
+        
+        # Hide overlay
         self.overlay_window.withdraw()
-        self.selection_mode = SelectionMode.NONE
+        print("Overlay window hidden")  # Debug
         
         # Restore the configuration window and main window
         try:
-            import tkinter as tk
             if self.selection_window:
                 self.selection_window.deiconify()
                 self.selection_window.lift()
@@ -725,8 +703,20 @@ class MacroInterface:
             else:
                 self.chips.append(ChipConfig(amount=amount, position=position))
             
-            self.overlay_window.withdraw()
+            # Auto-save configuration
+            self.save_config()
+            
+            # Properly reset selection mode and release grab
             self.selection_mode = SelectionMode.NONE
+            
+            # Release grab if set
+            try:
+                if self.overlay_window:
+                    self.overlay_window.grab_release()
+            except:
+                pass
+            
+            self.overlay_window.withdraw()
             self._refresh_chips_list()
             msg = messagebox.showinfo("Chip Added", f"Chip {amount} set at ({x}, {y})")
             # Bring the message box to front
@@ -746,10 +736,12 @@ class MacroInterface:
         try:
             if self.overlay_window:
                 self.overlay_window.grab_release()
+                print("Released overlay grab (cancel)")  # Debug
         except:
             pass
             
         self.overlay_window.withdraw()
+        print(f"Resetting selection mode from {self.selection_mode} to NONE (cancel)")  # Debug
         self.selection_mode = SelectionMode.NONE
         
         # Restore the configuration window and main window

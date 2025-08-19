@@ -64,52 +64,64 @@ class BetAutomationApp:
 	def _build_login_ui(self):
 		self.root = tk.Tk()
 		self.root.title('Bet Automation - Macro Interface')
-		self.root.geometry('450x500')
+		# Remove fixed geometry to let window size adjust to content
+
+		# Main container with padding
+		main_frame = tk.Frame(self.root, padx=20, pady=20)
+		main_frame.pack(fill='both', expand=True)
 
 		# Title
-		title_label = tk.Label(self.root, text='Bet Automation', font=("Arial", 16, "bold"))
+		title_label = tk.Label(main_frame, text='Bet Automation', font=("Arial", 16, "bold"))
 		title_label.pack(pady=10)
 
-		self.user_label = tk.Label(self.root, text='Username')
+		self.user_label = tk.Label(main_frame, text='Username')
 		self.user_label.pack(pady=4)
-		self.username_entry = tk.Entry(self.root, width=30)
+		self.username_entry = tk.Entry(main_frame, width=30)
 		self.username_entry.pack()
 		self.username_entry.insert(0, "user1") 
 
-		self.pass_label = tk.Label(self.root, text='Password')
+		self.pass_label = tk.Label(main_frame, text='Password')
 		self.pass_label.pack(pady=4)
-		self.password_entry = tk.Entry(self.root, show='*', width=30)
+		self.password_entry = tk.Entry(main_frame, show='*', width=30)
 		self.password_entry.pack()
 		self.password_entry.insert(0, "123456") 
 
-		self.login_btn = tk.Button(self.root, text='Login', command=self.login, 
+		self.login_btn = tk.Button(main_frame, text='Login', command=self.login, 
 								  bg="#4CAF50", fg="white", width=20)
 		self.login_btn.pack(pady=6)
 
 		# Logout button (hidden until login)
-		self.logout_btn = tk.Button(self.root, text='Logout', command=self.logout)
+		self.logout_btn = tk.Button(main_frame, text='Logout', command=self.logout)
 		# Do not pack yet; shown after login
 
-		self.status_label = tk.Label(self.root, text='')
+		self.status_label = tk.Label(main_frame, text='')
 		self.status_label.pack(pady=6)
 
 		# Configuration button (hidden until login)
-		self.configure_btn = tk.Button(self.root, text='Configure Positions', 
+		self.configure_btn = tk.Button(main_frame, text='Configure Positions', 
 									  command=self._open_configuration, 
 									  bg="#2196F3", fg="white")
 		# Do not pack yet; shown after login
 
 		# Test button (hidden until login)
-		self.test_btn = tk.Button(self.root, text='Test Chip Click', command=self._on_test_chip)
+		self.test_btn = tk.Button(main_frame, text='Test Chip Click', command=self._on_test_chip)
 		# Do not pack yet; shown after login
 
 		# Log area (hidden until login)
-		self.log_frame = tk.Frame(self.root)
+		self.log_frame = tk.Frame(main_frame)
 		self.log_text = tk.Text(self.log_frame, height=12, state='disabled')
 		scroll = tk.Scrollbar(self.log_frame, command=self.log_text.yview)
 		self.log_text.configure(yscrollcommand=scroll.set)
 		self.log_text.pack(side='left', fill='both', expand=True)
 		scroll.pack(side='right', fill='y')
+
+		# Center the window after content is packed
+		self.root.update_idletasks()
+		width = self.root.winfo_reqwidth()
+		height = self.root.winfo_reqheight()
+		x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+		y = (self.root.winfo_screenheight() // 2) - (height // 2)
+		self.root.geometry(f"{width}x{height}+{x}+{y}")
 
 		self.root.mainloop()
 
@@ -210,6 +222,28 @@ class BetAutomationApp:
 		else:
 			self._set_status("Configuration incomplete - please configure all positions")
 
+	def _check_configuration_status(self):
+		"""Check and display current configuration status"""
+		if self.macro_betting.is_configured():
+			positions = self.macro_interface.positions
+			chips = self.macro_interface.chips
+			status_text = f"Ready - {len(positions)} areas, {len(chips)} chips configured"
+			self._set_status(status_text)
+			self._append_log(f"Configuration loaded: {len(positions)} areas, {len(chips)} chips")
+			
+			# Show detailed configuration
+			self._append_log("Configured positions:")
+			for name, pos in positions.items():
+				self._append_log(f"  - {name}: ({pos.x}, {pos.y})")
+			
+			if chips:
+				self._append_log("Configured chips:")
+				for chip in chips:
+					self._append_log(f"  - {chip.amount}: ({chip.position.x}, {chip.position.y})")
+		else:
+			self._set_status("Configuration needed - click 'Configure Positions'")
+			self._append_log("No configuration found - please configure positions")
+
 	def login(self):
 		user = self.username_entry.get().strip()
 		pwd = self.password_entry.get()
@@ -231,9 +265,25 @@ class BetAutomationApp:
 			self._show_configure_button(True)
 			self._show_test_button(True)
 			self._show_log(True)
-			self.root.after(100, lambda: self._connect_ws(user))
+			
+			# Check configuration status after login
+			self.root.after(100, self._check_configuration_status)
+			
+			# Resize window to fit logged-in content
+			self.root.after(150, self._resize_window_for_logged_in)
+			self.root.after(250, lambda: self._connect_ws(user))
 		except Exception as e:
 			messagebox.showerror('Error', f'Login error: {e}')
+
+	def _resize_window_for_logged_in(self):
+		"""Resize window to accommodate logged-in content"""
+		self.root.update_idletasks()
+		# Set a larger size for logged-in state
+		width = 500
+		height = 600
+		x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+		y = (self.root.winfo_screenheight() // 2) - (height // 2)
+		self.root.geometry(f"{width}x{height}+{x}+{y}")
 
 	def logout(self):
 		# Stop WS loop and close connection
@@ -254,6 +304,19 @@ class BetAutomationApp:
 		self._show_logout_button(False)
 		self._clear_log()
 		self._show_login_fields(True)
+		
+		# Resize window back to login size
+		self.root.after(100, self._resize_window_for_login)
+
+	def _resize_window_for_login(self):
+		"""Resize window to fit login content"""
+		self.root.update_idletasks()
+		# Let window size adjust to content for login
+		width = self.root.winfo_reqwidth()
+		height = self.root.winfo_reqheight()
+		x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+		y = (self.root.winfo_screenheight() // 2) - (height // 2)
+		self.root.geometry(f"{width}x{height}+{x}+{y}")
 
 	def _connect_ws(self, user: str):
 		async def run():
