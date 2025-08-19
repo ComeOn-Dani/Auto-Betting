@@ -70,12 +70,20 @@ class MacroBaccarat:
             self.log(f"Error: bet_area_not_found ({side})")
             return False, 'bet_area_not_found'
         
+        # Check if any chips are configured
+        available_chips = self.macro.get_all_chips()
+        if not available_chips:
+            self.log("Error: no_chips_configured")
+            return False, 'no_chips_configured'
+        
         # Try to find exact chip first
         chip_pos = self.get_chip_position(amount)
         if chip_pos:
             self.log(f"Exact chip found: {amount} at ({chip_pos.x},{chip_pos.y})")
+            self.log(f"About to click chip at coordinates: ({chip_pos.x},{chip_pos.y})")
             click_center((chip_pos.x, chip_pos.y, chip_pos.width, chip_pos.height))
             time.sleep(0.2)
+            self.log(f"About to click bet area at coordinates: ({area_pos.x},{area_pos.y})")
             click_center((area_pos.x, area_pos.y, area_pos.width, area_pos.height))
             self.log("Click sequence completed (exact chip)")
             return True, 'ok'
@@ -131,5 +139,7 @@ class MacroBaccarat:
             return False
         
         self.log(f"Test: clicking chip {amount} at ({chip_pos.x},{chip_pos.y})")
+        self.log(f"Test: About to click at coordinates: ({chip_pos.x},{chip_pos.y}) with size ({chip_pos.width},{chip_pos.height})")
         click_center((chip_pos.x, chip_pos.y, chip_pos.width, chip_pos.height))
+        self.log(f"Test: Click completed for chip {amount}")
         return True 

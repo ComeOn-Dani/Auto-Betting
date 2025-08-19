@@ -211,4 +211,135 @@ out/
 
 # Test files
 test-results/
-coverage/ 
+coverage/
+
+# ===== PYTHON / DESKTOPAPP SPECIFIC =====
+
+# Python virtual environments
+DesktopApp/venv/
+DesktopApp/env/
+DesktopApp/.venv/
+DesktopApp/.env/
+**/venv/
+**/env/
+**/.venv/
+**/.env/
+
+# Python bytecode
+DesktopApp/__pycache__/
+DesktopApp/*.py[cod]
+DesktopApp/*$py.class
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# Python distribution / packaging
+DesktopApp/.Python
+DesktopApp/build/
+DesktopApp/develop-eggs/
+DesktopApp/dist/
+DesktopApp/downloads/
+DesktopApp/eggs/
+DesktopApp/.eggs/
+DesktopApp/lib/
+DesktopApp/lib64/
+DesktopApp/parts/
+DesktopApp/sdist/
+DesktopApp/var/
+DesktopApp/wheels/
+DesktopApp/*.egg-info/
+DesktopApp/.installed.cfg
+DesktopApp/*.egg
+
+# PyInstaller
+DesktopApp/*.manifest
+DesktopApp/*.spec
+
+# Unit test / coverage reports
+DesktopApp/htmlcov/
+DesktopApp/.tox/
+DesktopApp/.coverage
+DesktopApp/.coverage.*
+DesktopApp/.cache
+DesktopApp/nosetests.xml
+DesktopApp/coverage.xml
+DesktopApp/*.cover
+DesktopApp/.hypothesis/
+DesktopApp/.pytest_cache/
+
+# Jupyter Notebook
+DesktopApp/.ipynb_checkpoints
+
+# pyenv
+DesktopApp/.python-version
+
+# pipenv
+DesktopApp/Pipfile.lock
+
+# PEP 582
+DesktopApp/__pypackages__/
+
+# Celery stuff
+DesktopApp/celerybeat-schedule
+DesktopApp/celerybeat.pid
+
+# SageMath parsed files
+DesktopApp*.sage.py
+
+# Environments
+DesktopApp/.env
+DesktopApp/.venv
+DesktopApp/env/
+DesktopApp/venv/
+DesktopApp/ENV/
+DesktopApp/env.bak/
+DesktopApp/venv.bak/
+
+# Spyder project settings
+DesktopApp/.spyderproject
+DesktopApp/.spyproject
+
+# Rope project settings
+DesktopApp/.ropeproject
+
+# mkdocs documentation
+DesktopApp/site/
+
+# mypy
+DesktopApp/.mypy_cache/
+DesktopApp/.dmypy.json
+DesktopApp/dmypy.json
+
+# Pyre type checker
+DesktopApp/.pyre/
+
+# DesktopApp specific files
+DesktopApp/macro_config.json
+DesktopApp/*.log
+DesktopApp/debug_*.py
+DesktopApp/test_*.py
+DesktopApp/simple_*.py
+DesktopApp/demo_*.py
+DesktopApp/check_*.py
+DesktopApp/start.py
+DesktopApp/setup.py
+
+# Temporary files
+DesktopApp/tmp/
+DesktopApp/temp/
+DesktopApp/*.tmp
+DesktopApp/*.temp
+
+# Screenshots and captures
+DesktopApp/screenshots/
+DesktopApp/captures/
+DesktopApp/*.png
+DesktopApp/*.jpg
+DesktopApp/*.jpeg
+DesktopApp/*.bmp
+DesktopApp/*.gif
+
+# User-specific configuration files
+DesktopApp/user_config.json
+DesktopApp/settings.json
+DesktopApp/preferences.json

@@ -12,11 +12,8 @@ from tkinter import messagebox
 import os
 from datetime import datetime, timezone
 
-from site_pragmatic import PragmaticBaccarat
 from macro_interface import MacroInterface, SelectionMode
 from macro_betting import MacroBaccarat
-from cv_utils import list_monitors, set_selected_monitor
-from cv_utils import click_center
 
 
 @dataclass
@@ -33,7 +30,7 @@ class BetAutomationApp:
 		self.current_user: Optional[str] = None
 		self.pc_name: Optional[str] = None
 		self.ws: Optional[websockets.WebSocketClientProtocol] = None
-		self.pragmatic = PragmaticBaccarat(cfg.raw, logger=self._append_log)
+		self.pragmatic = None # Removed: self.pragmatic = PragmaticBaccarat(cfg.raw, logger=self._append_log)
 		self.loop = asyncio.new_event_loop()
 		self.ws_thread = threading.Thread(target=self._run_loop, daemon=True)
 		self.keep_running: bool = False
@@ -53,11 +50,8 @@ class BetAutomationApp:
 		self.status_label = None
 		self.log_frame = None
 		self.log_text = None
-		self.monitor_var = None
-		self.monitor_menu = None
 		self.test_btn = None
 		self.configure_btn = None
-		self.mode_var = None
 
 	def _run_loop(self):
 		asyncio.set_event_loop(self.loop)
@@ -99,43 +93,11 @@ class BetAutomationApp:
 		self.status_label = tk.Label(self.root, text='')
 		self.status_label.pack(pady=6)
 
-		# Check if image recognition templates are available
-		image_recognition_available = self._check_image_recognition_available()
-
-		# Mode selector
-		mode_frame = tk.Frame(self.root)
-		mode_frame.pack(pady=5)
-		tk.Label(mode_frame, text="Betting Mode:").pack(side="left")
-		self.mode_var = tk.StringVar(self.root, value="macro")
-		macro_radio = tk.Radiobutton(mode_frame, text="Macro (Position-based)", 
-									variable=self.mode_var, value="macro")
-		macro_radio.pack(side="left", padx=5)
-		
-		image_radio = tk.Radiobutton(mode_frame, text="Image Recognition", 
-									variable=self.mode_var, value="image")
-		image_radio.pack(side="left", padx=5)
-		
-		if not image_recognition_available:
-			image_radio.config(state="disabled")
-			tk.Label(mode_frame, text="(Templates missing)", fg="red", font=("Arial", 8)).pack(side="left", padx=5)
-
-		# Monitor selector
-		monitor_frame = tk.Frame(self.root)
-		monitor_frame.pack(pady=5)
-		tk.Label(monitor_frame, text="Monitor:").pack(side="left")
-		mons = list_monitors()
-		choices = [f"Monitor {i} ({m.get('width','?')}x{m.get('height','?')} @ {m.get('left',0)},{m.get('top',0)})" for i, m in enumerate(mons) if i>0]
-		self.monitor_var = tk.StringVar(self.root)
-		self.monitor_var.set(choices[0] if choices else 'Monitor 1')
-		self.monitor_menu = tk.OptionMenu(monitor_frame, self.monitor_var, *choices, command=self._on_monitor_change)
-		self.monitor_menu.pack(side="left", padx=5)
-
 		# Configuration button (hidden until login)
 		self.configure_btn = tk.Button(self.root, text='Configure Positions', 
 									  command=self._open_configuration, 
 									  bg="#2196F3", fg="white")
-		# Show immediately for testing
-		self.configure_btn.pack(pady=4)
+		# Do not pack yet; shown after login
 
 		# Test button (hidden until login)
 		self.test_btn = tk.Button(self.root, text='Test Chip Click', command=self._on_test_chip)
@@ -248,28 +210,6 @@ class BetAutomationApp:
 		else:
 			self._set_status("Configuration incomplete - please configure all positions")
 
-	def _check_image_recognition_available(self) -> bool:
-		"""Check if image recognition templates are available"""
-		try:
-			# Check if main templates exist
-			main_templates = [
-				self.cfg.raw['templates']['player_area'],
-				self.cfg.raw['templates']['banker_area'],
-				self.cfg.raw['templates']['cancel_button']
-			]
-			
-			for template in main_templates:
-				if not os.path.exists(template):
-					return False
-			
-			# Check if at least some chip templates exist
-			chip_templates = self.cfg.raw['templates']['chips']
-			available_chips = sum(1 for path in chip_templates.values() if os.path.exists(path))
-			
-			return available_chips > 0
-		except Exception:
-			return False
-
 	def login(self):
 		user = self.username_entry.get().strip()
 		pwd = self.password_entry.get()
@@ -288,9 +228,9 @@ class BetAutomationApp:
 			self._set_status(f'Logged in as {user}. Connecting...')
 			self._show_login_fields(False)
 			self._show_logout_button(True)
-			self._show_log(True)
-			self._show_test_button(True)
 			self._show_configure_button(True)
+			self._show_test_button(True)
+			self._show_log(True)
 			self.root.after(100, lambda: self._connect_ws(user))
 		except Exception as e:
 			messagebox.showerror('Error', f'Login error: {e}')
@@ -308,12 +248,12 @@ class BetAutomationApp:
 		self.current_user = None
 		self.pc_name = None
 		self._set_status('')
-		self._show_logout_button(False)
 		self._show_log(False)
-		self._clear_log()
-		self._show_login_fields(True)
 		self._show_test_button(False)
 		self._show_configure_button(False)
+		self._show_logout_button(False)
+		self._clear_log()
+		self._show_login_fields(True)
 
 	def _connect_ws(self, user: str):
 		async def run():
@@ -367,20 +307,13 @@ class BetAutomationApp:
 		amount = int(data.get('amount', 0))
 		side = data.get('side', 'Player')
 		
-		# Choose betting method based on mode
-		mode = self.mode_var.get() if self.mode_var else "macro"
+		# Use macro-based betting only
+		if not self.macro_betting.is_configured():
+			self._append_log("Error: Macro positions not configured")
+			await self._send_ws({'type': 'betError', 'message': 'Macro positions not configured', 'platform': platform, 'amount': amount, 'side': side, 'errorType': 'not_configured'})
+			return
 		
-		if mode == "macro":
-			# Use macro-based betting
-			if not self.macro_betting.is_configured():
-				self._append_log("Error: Macro positions not configured")
-				await self._send_ws({'type': 'betError', 'message': 'Macro positions not configured', 'platform': platform, 'amount': amount, 'side': side, 'errorType': 'not_configured'})
-				return
-			
-			ok, reason = self.macro_betting.place_bet(amount, side)
-		else:
-			# Use image recognition
-			ok, reason = self.pragmatic.place_bet(amount, side)
+		ok, reason = self.macro_betting.place_bet(amount, side)
 		
 		if ok:
 			self._append_log(f"Bet success: amount={amount} side={side}")
@@ -390,13 +323,8 @@ class BetAutomationApp:
 			await self._send_ws({'type': 'betError', 'message': self._error_message(reason), 'platform': platform, 'amount': amount, 'side': side, 'errorType': reason})
 
 	async def _handle_cancel_bet(self):
-		# Choose cancel method based on mode
-		mode = self.mode_var.get() if self.mode_var else "macro"
-		
-		if mode == "macro":
-			ok, reason = self.macro_betting.cancel_bet()
-		else:
-			ok, reason = self.pragmatic.cancel_bet()
+		# Use macro-based cancel only
+		ok, reason = self.macro_betting.cancel_bet()
 		
 		if not ok:
 			self._append_log(f"Cancel error: {reason}")
@@ -432,20 +360,11 @@ class BetAutomationApp:
 			'bet_area_not_found': 'Bet area position not found in configuration',
 			'chip_not_found': 'Chip position not found in configuration',
 			'cancel_button_not_configured': 'Cancel button position not configured',
+			'no_chips_configured': 'No chips are configured. Please configure at least one chip position.',
 		}.get(code, code)
 
-	def _on_monitor_change(self, selection: str):
-		try:
-			# Parse leading monitor index from label 'Monitor X (...)'
-			if selection.startswith('Monitor'):
-				idx = int(selection.split()[1])
-				set_selected_monitor(idx)
-				self._append_log(f'Selected monitor {idx}')
-		except Exception as e:
-			self._append_log(f'Monitor select error: {e}')
-
 	def _on_test_chip(self):
-		"""Test chip clicking based on selected mode"""
+		"""Test chip clicking using macro mode only"""
 		try:
 			# Ask user for chip amount
 			from tkinter import simpledialog
@@ -453,28 +372,16 @@ class BetAutomationApp:
 			if amount is None:
 				return
 			
-			mode = self.mode_var.get() if self.mode_var else "macro"
+			# Test macro chip click only
+			if not self.macro_betting.is_configured():
+				self._append_log("Error: Macro positions not configured")
+				return
 			
-			if mode == "macro":
-				# Test macro chip click
-				if not self.macro_betting.is_configured():
-					self._append_log("Error: Macro positions not configured")
-					return
-				
-				success = self.macro_betting.test_chip_click(amount)
-				if success:
-					self._append_log(f'Test: Successfully clicked chip {amount}')
-				else:
-					self._append_log(f'Test: Chip {amount} not found in configuration')
+			success = self.macro_betting.test_chip_click(amount)
+			if success:
+				self._append_log(f'Test: Successfully clicked chip {amount}')
 			else:
-				# Test image recognition chip click
-				res = self.pragmatic.find_best_chip(amount)
-				if res is None:
-					self._append_log(f'Test: Chip {amount} not found')
-					return
-				_, (x, y, w, h, score) = res
-				self._append_log(f'Test: clicking chip {amount} at ({x},{y}) score={score:.3f}')
-				click_center((x, y, w, h))
+				self._append_log(f'Test: Chip {amount} not found in configuration')
 		except Exception as e:
 			self._append_log(f'Test click error: {e}')
 
