@@ -1,0 +1,493 @@
+import asyncio
+import json
+import threading
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+import requests
+import websockets
+import tkinter as tk
+from tkinter import messagebox
+import os
+from datetime import datetime, timezone
+
+from site_pragmatic import PragmaticBaccarat
+from macro_interface import MacroInterface, SelectionMode
+from macro_betting import MacroBaccarat
+from cv_utils import list_monitors, set_selected_monitor
+from cv_utils import click_center
+
+
+@dataclass
+class Config:
+	controller_http: str
+	controller_ws: str
+	raw: dict
+
+
+class BetAutomationApp:
+	def __init__(self, cfg: Config):
+		self.cfg = cfg
+		self.token: Optional[str] = None
+		self.current_user: Optional[str] = None
+		self.pc_name: Optional[str] = None
+		self.ws: Optional[websockets.WebSocketClientProtocol] = None
+		self.pragmatic = PragmaticBaccarat(cfg.raw, logger=self._append_log)
+		self.loop = asyncio.new_event_loop()
+		self.ws_thread = threading.Thread(target=self._run_loop, daemon=True)
+		self.keep_running: bool = False
+		
+		# Macro interface
+		self.macro_interface = MacroInterface()
+		self.macro_betting = MacroBaccarat(self.macro_interface, logger=self._append_log)
+		
+		# UI refs
+		self.root = None
+		self.username_entry = None
+		self.password_entry = None
+		self.user_label = None
+		self.pass_label = None
+		self.login_btn = None
+		self.logout_btn = None
+		self.status_label = None
+		self.log_frame = None
+		self.log_text = None
+		self.monitor_var = None
+		self.monitor_menu = None
+		self.test_btn = None
+		self.configure_btn = None
+		self.mode_var = None
+
+	def _run_loop(self):
+		asyncio.set_event_loop(self.loop)
+		self.loop.run_forever()
+
+	def start(self):
+		self.ws_thread.start()
+		self._build_login_ui()
+
+	def _build_login_ui(self):
+		self.root = tk.Tk()
+		self.root.title('Bet Automation - Macro Interface')
+		self.root.geometry('450x500')
+
+		# Title
+		title_label = tk.Label(self.root, text='Bet Automation', font=("Arial", 16, "bold"))
+		title_label.pack(pady=10)
+
+		self.user_label = tk.Label(self.root, text='Username')
+		self.user_label.pack(pady=4)
+		self.username_entry = tk.Entry(self.root, width=30)
+		self.username_entry.pack()
+		self.username_entry.insert(0, "user1") 
+
+		self.pass_label = tk.Label(self.root, text='Password')
+		self.pass_label.pack(pady=4)
+		self.password_entry = tk.Entry(self.root, show='*', width=30)
+		self.password_entry.pack()
+		self.password_entry.insert(0, "123456") 
+
+		self.login_btn = tk.Button(self.root, text='Login', command=self.login, 
+								  bg="#4CAF50", fg="white", width=20)
+		self.login_btn.pack(pady=6)
+
+		# Logout button (hidden until login)
+		self.logout_btn = tk.Button(self.root, text='Logout', command=self.logout)
+		# Do not pack yet; shown after login
+
+		self.status_label = tk.Label(self.root, text='')
+		self.status_label.pack(pady=6)
+
+		# Check if image recognition templates are available
+		image_recognition_available = self._check_image_recognition_available()
+
+		# Mode selector
+		mode_frame = tk.Frame(self.root)
+		mode_frame.pack(pady=5)
+		tk.Label(mode_frame, text="Betting Mode:").pack(side="left")
+		self.mode_var = tk.StringVar(self.root, value="macro")
+		macro_radio = tk.Radiobutton(mode_frame, text="Macro (Position-based)", 
+									variable=self.mode_var, value="macro")
+		macro_radio.pack(side="left", padx=5)
+		
+		image_radio = tk.Radiobutton(mode_frame, text="Image Recognition", 
+									variable=self.mode_var, value="image")
+		image_radio.pack(side="left", padx=5)
+		
+		if not image_recognition_available:
+			image_radio.config(state="disabled")
+			tk.Label(mode_frame, text="(Templates missing)", fg="red", font=("Arial", 8)).pack(side="left", padx=5)
+
+		# Monitor selector
+		monitor_frame = tk.Frame(self.root)
+		monitor_frame.pack(pady=5)
+		tk.Label(monitor_frame, text="Monitor:").pack(side="left")
+		mons = list_monitors()
+		choices = [f"Monitor {i} ({m.get('width','?')}x{m.get('height','?')} @ {m.get('left',0)},{m.get('top',0)})" for i, m in enumerate(mons) if i>0]
+		self.monitor_var = tk.StringVar(self.root)
+		self.monitor_var.set(choices[0] if choices else 'Monitor 1')
+		self.monitor_menu = tk.OptionMenu(monitor_frame, self.monitor_var, *choices, command=self._on_monitor_change)
+		self.monitor_menu.pack(side="left", padx=5)
+
+		# Configuration button (hidden until login)
+		self.configure_btn = tk.Button(self.root, text='Configure Positions', 
+									  command=self._open_configuration, 
+									  bg="#2196F3", fg="white")
+		# Show immediately for testing
+		self.configure_btn.pack(pady=4)
+
+		# Test button (hidden until login)
+		self.test_btn = tk.Button(self.root, text='Test Chip Click', command=self._on_test_chip)
+		# Do not pack yet; shown after login
+
+		# Log area (hidden until login)
+		self.log_frame = tk.Frame(self.root)
+		self.log_text = tk.Text(self.log_frame, height=12, state='disabled')
+		scroll = tk.Scrollbar(self.log_frame, command=self.log_text.yview)
+		self.log_text.configure(yscrollcommand=scroll.set)
+		self.log_text.pack(side='left', fill='both', expand=True)
+		scroll.pack(side='right', fill='y')
+
+		self.root.mainloop()
+
+	def _set_status(self, text: str):
+		if self.root and self.status_label:
+			self.root.after(0, lambda: self.status_label.config(text=text))
+
+	def _append_log(self, text: str):
+		# Handle logging before UI is built
+		if not hasattr(self, 'root') or not self.root or not self.log_text:
+			print(f"[LOG] {text}")  # Fallback to console output
+			return
+		def _do():
+			self.log_text.config(state='normal')
+			self.log_text.insert('end', text + '\n')
+			self.log_text.see('end')
+			self.log_text.config(state='disabled')
+		self.root.after(0, _do)
+
+	def _clear_log(self):
+		if not self.root or not self.log_text:
+			return
+		def _do():
+			self.log_text.config(state='normal')
+			self.log_text.delete('1.0', 'end')
+			self.log_text.config(state='disabled')
+		self.root.after(0, _do)
+
+	def _show_login_fields(self, show: bool):
+		def _pack(widget):
+			if widget and not widget.winfo_ismapped():
+				widget.pack()
+		def _forget(widget):
+			if widget and widget.winfo_ismapped():
+				widget.pack_forget()
+		if show:
+			_pack(self.user_label)
+			_pack(self.username_entry)
+			_pack(self.pass_label)
+			_pack(self.password_entry)
+			_pack(self.login_btn)
+		else:
+			_forget(self.user_label)
+			_forget(self.username_entry)
+			_forget(self.pass_label)
+			_forget(self.password_entry)
+			_forget(self.login_btn)
+
+	def _show_logout_button(self, show: bool):
+		if not self.logout_btn:
+			return
+		if show and not self.logout_btn.winfo_ismapped():
+			self.logout_btn.pack(pady=4)
+		elif not show and self.logout_btn.winfo_ismapped():
+			self.logout_btn.pack_forget()
+
+	def _show_log(self, show: bool):
+		if not self.log_frame:
+			return
+		if show and not self.log_frame.winfo_ismapped():
+			self.log_frame.pack(fill='both', expand=True, padx=8, pady=6)
+		elif not show and self.log_frame.winfo_ismapped():
+			self.log_frame.pack_forget()
+
+	def _show_test_button(self, show: bool):
+		if not self.test_btn:
+			return
+		if show and not self.test_btn.winfo_ismapped():
+			self.test_btn.pack(pady=4)
+		elif not show and self.test_btn.winfo_ismapped():
+			self.test_btn.pack_forget()
+
+	def _show_configure_button(self, show: bool):
+		if not self.configure_btn:
+			return
+		if show and not self.configure_btn.winfo_ismapped():
+			self.configure_btn.pack(pady=4)
+		elif not show and self.configure_btn.winfo_ismapped():
+			self.configure_btn.pack_forget()
+
+	def _open_configuration(self):
+		"""Open the position configuration interface"""
+		print("Opening configuration...")  # Debug
+		self._append_log("Opening position configuration...")
+		try:
+			self.macro_interface.start_position_selection(SelectionMode.NONE, self._on_configuration_complete)
+			print("Configuration window should be open now")
+		except Exception as e:
+			print(f"Error opening configuration: {e}")
+			self._append_log(f"Error opening configuration: {e}")
+			messagebox.showerror("Error", f"Failed to open configuration: {e}")
+
+	def _on_configuration_complete(self):
+		"""Called when configuration is completed"""
+		self._append_log("Configuration completed successfully!")
+		if self.macro_betting.is_configured():
+			self._set_status("Macro positions configured and ready")
+		else:
+			self._set_status("Configuration incomplete - please configure all positions")
+
+	def _check_image_recognition_available(self) -> bool:
+		"""Check if image recognition templates are available"""
+		try:
+			# Check if main templates exist
+			main_templates = [
+				self.cfg.raw['templates']['player_area'],
+				self.cfg.raw['templates']['banker_area'],
+				self.cfg.raw['templates']['cancel_button']
+			]
+			
+			for template in main_templates:
+				if not os.path.exists(template):
+					return False
+			
+			# Check if at least some chip templates exist
+			chip_templates = self.cfg.raw['templates']['chips']
+			available_chips = sum(1 for path in chip_templates.values() if os.path.exists(path))
+			
+			return available_chips > 0
+		except Exception:
+			return False
+
+	def login(self):
+		user = self.username_entry.get().strip()
+		pwd = self.password_entry.get()
+		if not user or not pwd:
+			messagebox.showerror('Error', 'Enter username and password')
+			return
+		try:
+			resp = requests.post(f"{self.cfg.controller_http}/api/login", json={'username': user, 'password': pwd}, timeout=10)
+			data = resp.json()
+			if not data.get('success'):
+				messagebox.showerror('Login failed', data.get('message', 'Login failed'))
+				return
+			token = data['token']
+			self.token = token
+			self.current_user = user
+			self._set_status(f'Logged in as {user}. Connecting...')
+			self._show_login_fields(False)
+			self._show_logout_button(True)
+			self._show_log(True)
+			self._show_test_button(True)
+			self._show_configure_button(True)
+			self.root.after(100, lambda: self._connect_ws(user))
+		except Exception as e:
+			messagebox.showerror('Error', f'Login error: {e}')
+
+	def logout(self):
+		# Stop WS loop and close connection
+		self.keep_running = False
+		try:
+			if self.ws:
+				asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
+		except Exception:
+			pass
+		# Clear auth and UI state
+		self.token = None
+		self.current_user = None
+		self.pc_name = None
+		self._set_status('')
+		self._show_logout_button(False)
+		self._show_log(False)
+		self._clear_log()
+		self._show_login_fields(True)
+		self._show_test_button(False)
+		self._show_configure_button(False)
+
+	def _connect_ws(self, user: str):
+		async def run():
+			self.keep_running = True
+			while self.keep_running:
+				try:
+					async with websockets.connect(self.cfg.controller_ws) as ws:
+						self.ws = ws
+						await ws.send(json.dumps({'type': 'hello', 'token': self.token}))
+						# Request assignment
+						await ws.send(json.dumps({'type': 'requestAssignment'}))
+						self._set_status('Connected. Awaiting assignment...')
+						while self.keep_running:
+							msg = await ws.recv()
+							data = json.loads(msg)
+							self._append_log(f"Recv: {data}")
+							# Respond to server heartbeat
+							if data.get('type') == 'ping':
+								await ws.send(json.dumps({'type': 'pong'}))
+								continue
+							if data.get('type') == 'assignment':
+								self.pc_name = data['pc']
+								await ws.send(json.dumps({'type': 'register', 'pc': self.pc_name}))
+								user_txt = self.current_user or ''
+								self._set_status(f'Logged in as {user_txt} - Assigned as {self.pc_name}. Ready.')
+							elif data.get('type') == 'error':
+								# Invalid token / license issues
+								self._append_log(f"Error: {data.get('message','')}")
+								self.root.after(0, lambda: messagebox.showerror('Connection error', data.get('message', 'Unknown error')))
+								break
+							elif data.get('type') == 'placeBet':
+								self._append_log(f"Cmd: placeBet {data.get('amount')} {data.get('side')}")
+								await self._handle_place_bet(data)
+							elif data.get('type') == 'cancelBet':
+								self._append_log('Cmd: cancelBet')
+								await self._handle_cancel_bet()
+				except Exception as e:
+					if self.keep_running:
+						self._set_status(f'WS error: {e}. Reconnecting...')
+						self._append_log(f'WS error: {e}. Reconnecting...')
+						await asyncio.sleep(3)
+						continue
+					else:
+						break
+
+		# Schedule coroutine on the background event loop thread-safely
+		asyncio.run_coroutine_threadsafe(run(), self.loop)
+
+	async def _handle_place_bet(self, data: dict):
+		platform = data.get('platform', 'Pragmatic')
+		amount = int(data.get('amount', 0))
+		side = data.get('side', 'Player')
+		
+		# Choose betting method based on mode
+		mode = self.mode_var.get() if self.mode_var else "macro"
+		
+		if mode == "macro":
+			# Use macro-based betting
+			if not self.macro_betting.is_configured():
+				self._append_log("Error: Macro positions not configured")
+				await self._send_ws({'type': 'betError', 'message': 'Macro positions not configured', 'platform': platform, 'amount': amount, 'side': side, 'errorType': 'not_configured'})
+				return
+			
+			ok, reason = self.macro_betting.place_bet(amount, side)
+		else:
+			# Use image recognition
+			ok, reason = self.pragmatic.place_bet(amount, side)
+		
+		if ok:
+			self._append_log(f"Bet success: amount={amount} side={side}")
+			await self._send_ws({'type': 'betSuccess', 'platform': platform, 'amount': amount, 'side': side})
+		else:
+			self._append_log(f"Bet error: {reason}")
+			await self._send_ws({'type': 'betError', 'message': self._error_message(reason), 'platform': platform, 'amount': amount, 'side': side, 'errorType': reason})
+
+	async def _handle_cancel_bet(self):
+		# Choose cancel method based on mode
+		mode = self.mode_var.get() if self.mode_var else "macro"
+		
+		if mode == "macro":
+			ok, reason = self.macro_betting.cancel_bet()
+		else:
+			ok, reason = self.pragmatic.cancel_bet()
+		
+		if not ok:
+			self._append_log(f"Cancel error: {reason}")
+			await self._send_ws({'type': 'betError', 'message': self._error_message(reason), 'errorType': reason})
+		else:
+			self._append_log("Cancel success")
+
+	async def _send_ws(self, obj: dict):
+		try:
+			# Always include pc name if assigned
+			if self.pc_name and 'pc' not in obj:
+				obj['pc'] = self.pc_name
+			# Add timestamp for server/UI logs
+			if 'timestamp' not in obj:
+				obj['timestamp'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+			if self.ws:
+				await self.ws.send(json.dumps(obj))
+				self._append_log(f"Sent: {obj}")
+		except Exception as e:
+			self._append_log(f"Send error: {e}")
+
+	def _error_message(self, code: str) -> str:
+		return {
+			'invalid_side': 'Invalid bet side',
+			'invalid_amount': 'Invalid bet amount',
+			'wrong_tab': 'Cannot place bet: You are not on the betting tab. Please navigate to the casino game.',
+			'not_betting_time': 'Cannot place bet: You are on the right tab but it is not betting time. Please wait for the betting phase.',
+			'cannot_compose_amount': 'Cannot compose amount with available chips',
+			'no_chips_found': 'No chip templates found on screen',
+			'cancel_unavailable': 'Cancel button not configured',
+			'cancel_not_found': 'Cancel button not found',
+			'not_configured': 'Macro positions not configured. Please configure positions first.',
+			'bet_area_not_found': 'Bet area position not found in configuration',
+			'chip_not_found': 'Chip position not found in configuration',
+			'cancel_button_not_configured': 'Cancel button position not configured',
+		}.get(code, code)
+
+	def _on_monitor_change(self, selection: str):
+		try:
+			# Parse leading monitor index from label 'Monitor X (...)'
+			if selection.startswith('Monitor'):
+				idx = int(selection.split()[1])
+				set_selected_monitor(idx)
+				self._append_log(f'Selected monitor {idx}')
+		except Exception as e:
+			self._append_log(f'Monitor select error: {e}')
+
+	def _on_test_chip(self):
+		"""Test chip clicking based on selected mode"""
+		try:
+			# Ask user for chip amount
+			from tkinter import simpledialog
+			amount = simpledialog.askinteger("Test Chip", "Enter chip amount to test:", minvalue=1)
+			if amount is None:
+				return
+			
+			mode = self.mode_var.get() if self.mode_var else "macro"
+			
+			if mode == "macro":
+				# Test macro chip click
+				if not self.macro_betting.is_configured():
+					self._append_log("Error: Macro positions not configured")
+					return
+				
+				success = self.macro_betting.test_chip_click(amount)
+				if success:
+					self._append_log(f'Test: Successfully clicked chip {amount}')
+				else:
+					self._append_log(f'Test: Chip {amount} not found in configuration')
+			else:
+				# Test image recognition chip click
+				res = self.pragmatic.find_best_chip(amount)
+				if res is None:
+					self._append_log(f'Test: Chip {amount} not found')
+					return
+				_, (x, y, w, h, score) = res
+				self._append_log(f'Test: clicking chip {amount} at ({x},{y}) score={score:.3f}')
+				click_center((x, y, w, h))
+		except Exception as e:
+			self._append_log(f'Test click error: {e}')
+
+
+def load_config() -> Config:
+	base_dir = os.path.dirname(os.path.abspath(__file__))
+	cfg_path = os.path.join(base_dir, 'config.json')
+	with open(cfg_path, 'r', encoding='utf-8') as f:
+		raw = json.load(f)
+	return Config(controller_http=raw['controller']['http_url'], controller_ws=raw['controller']['ws_url'], raw=raw)
+
+
+if __name__ == '__main__':
+	cfg = load_config()
+	app = BetAutomationApp(cfg)
+	app.start() 
