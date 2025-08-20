@@ -117,10 +117,35 @@ def build_nonwhite_mask(template_bgr: np.ndarray, alpha: Optional[np.ndarray] = 
 	return mask
 
 
+def get_monitor_for_coordinates(x: int, y: int) -> dict:
+	"""Get the monitor that contains the given coordinates"""
+	with mss.mss() as sct:
+		monitors = sct.monitors
+		for i, monitor in enumerate(monitors):
+			if i == 0:  # Skip the "all monitors" entry
+				continue
+			left = monitor['left']
+			top = monitor['top']
+			width = monitor['width']
+			height = monitor['height']
+			
+			if (left <= x < left + width and top <= y < top + height):
+				return monitor
+		# Default to primary monitor if not found
+		return monitors[1] if len(monitors) > 1 else monitors[0]
+
 def click_center(box: Tuple[int, int, int, int], move_delay_ms: int = 100, post_click_ms: int = 150) -> None:
 	x, y, w, h = box
-	cx = MON_LEFT + x + w // 2
-	cy = MON_TOP + y + h // 2
+	
+	# Get the monitor that contains these coordinates
+	target_monitor = get_monitor_for_coordinates(x, y)
+	
+	# Click at the exact position (x, y) without adding width/height offsets
+	# since the stored coordinates are the exact click positions
+	cx, cy = x, y
+	
+	print(f"Clicking at exact position ({cx}, {cy}) on monitor: {target_monitor['left']},{target_monitor['top']} {target_monitor['width']}x{target_monitor['height']}")
+	
 	pyautogui.moveTo(cx, cy, duration=move_delay_ms / 1000.0)
 	pyautogui.click()
 	time.sleep(post_click_ms / 1000.0)

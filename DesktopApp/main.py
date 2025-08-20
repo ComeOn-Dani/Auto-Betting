@@ -103,10 +103,6 @@ class BetAutomationApp:
 									  bg="#2196F3", fg="white")
 		# Do not pack yet; shown after login
 
-		# Test button (hidden until login)
-		self.test_btn = tk.Button(main_frame, text='Test Chip Click', command=self._on_test_chip)
-		# Do not pack yet; shown after login
-
 		# Log area (hidden until login)
 		self.log_frame = tk.Frame(main_frame)
 		self.log_text = tk.Text(self.log_frame, height=12, state='disabled')
@@ -114,6 +110,10 @@ class BetAutomationApp:
 		self.log_text.configure(yscrollcommand=scroll.set)
 		self.log_text.pack(side='left', fill='both', expand=True)
 		scroll.pack(side='right', fill='y')
+
+		# Logout button (hidden until login) - will be shown below log area
+		self.logout_btn = tk.Button(main_frame, text='Logout', command=self.logout)
+		# Do not pack yet; shown after login
 
 		# Center the window after content is packed
 		self.root.update_idletasks()
@@ -183,16 +183,14 @@ class BetAutomationApp:
 			return
 		if show and not self.log_frame.winfo_ismapped():
 			self.log_frame.pack(fill='both', expand=True, padx=8, pady=6)
+			# Show logout button below log area
+			if self.logout_btn and not self.logout_btn.winfo_ismapped():
+				self.logout_btn.pack(pady=4)
 		elif not show and self.log_frame.winfo_ismapped():
 			self.log_frame.pack_forget()
-
-	def _show_test_button(self, show: bool):
-		if not self.test_btn:
-			return
-		if show and not self.test_btn.winfo_ismapped():
-			self.test_btn.pack(pady=4)
-		elif not show and self.test_btn.winfo_ismapped():
-			self.test_btn.pack_forget()
+			# Hide logout button when log is hidden
+			if self.logout_btn and self.logout_btn.winfo_ismapped():
+				self.logout_btn.pack_forget()
 
 	def _show_configure_button(self, show: bool):
 		if not self.configure_btn:
@@ -261,9 +259,7 @@ class BetAutomationApp:
 			self.current_user = user
 			self._set_status(f'Logged in as {user}. Connecting...')
 			self._show_login_fields(False)
-			self._show_logout_button(True)
 			self._show_configure_button(True)
-			self._show_test_button(True)
 			self._show_log(True)
 			
 			# Check configuration status after login
@@ -299,9 +295,7 @@ class BetAutomationApp:
 		self.pc_name = None
 		self._set_status('')
 		self._show_log(False)
-		self._show_test_button(False)
 		self._show_configure_button(False)
-		self._show_logout_button(False)
 		self._clear_log()
 		self._show_login_fields(True)
 		
@@ -425,28 +419,6 @@ class BetAutomationApp:
 			'cancel_button_not_configured': 'Cancel button position not configured',
 			'no_chips_configured': 'No chips are configured. Please configure at least one chip position.',
 		}.get(code, code)
-
-	def _on_test_chip(self):
-		"""Test chip clicking using macro mode only"""
-		try:
-			# Ask user for chip amount
-			from tkinter import simpledialog
-			amount = simpledialog.askinteger("Test Chip", "Enter chip amount to test:", minvalue=1)
-			if amount is None:
-				return
-			
-			# Test macro chip click only
-			if not self.macro_betting.is_configured():
-				self._append_log("Error: Macro positions not configured")
-				return
-			
-			success = self.macro_betting.test_chip_click(amount)
-			if success:
-				self._append_log(f'Test: Successfully clicked chip {amount}')
-			else:
-				self._append_log(f'Test: Chip {amount} not found in configuration')
-		except Exception as e:
-			self._append_log(f'Test click error: {e}')
 
 
 def load_config() -> Config:
