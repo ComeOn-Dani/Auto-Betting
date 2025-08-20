@@ -29,7 +29,8 @@ class SelectionMode(Enum):
     CHIP = "chip"
 
 class MacroInterface:
-    def __init__(self, config_path: str = "macro_config.json"):
+    def __init__(self, root: Optional[tk.Tk] = None, config_path: str = "macro_config.json"):
+        self.root = root
         self.config_path = config_path
         self.positions: Dict[str, Position] = {}
         self.chips: List[ChipConfig] = []
@@ -41,7 +42,7 @@ class MacroInterface:
         
     def load_config(self):
         """Load saved positions and chip configurations"""
-        # Define predefined chip amounts
+        # Define initial chip amounts for convenience
         self.predefined_chips = [1000, 25000, 125000, 500000, 1250000, 2500000, 5000000, 50000000]
         
         if os.path.exists(self.config_path):
@@ -68,11 +69,12 @@ class MacroInterface:
                 print(f"Loaded {len(self.positions)} positions and {len(self.chips)} chips")
             except Exception as e:
                 print(f"Error loading config: {e}")
+                # If there's an error loading, ensure initial chips exist
+                self._ensure_predefined_chips_exist()
         else:
             print(f"Config file not found: {self.config_path}")
-        
-        # Ensure all predefined chips exist in the config (with default positions if not set)
-        self._ensure_predefined_chips_exist()
+            # Only ensure initial chips exist if config file doesn't exist
+            self._ensure_predefined_chips_exist()
     
     def _ensure_predefined_chips_exist(self):
         """Ensure all initial chips exist in the config with default positions if not set"""
@@ -115,32 +117,38 @@ class MacroInterface:
         except Exception as e:
             print(f"Error saving config: {e}")
     
-    def start_position_selection(self, mode: SelectionMode = SelectionMode.NONE, callback: Optional[Callable] = None):
+    def start_position_selection(self):
         """Start position selection mode"""
-        # Reload data from config file every time window opens
+        # Load config to ensure we have the latest data
         self.load_config()
         
-        self.selection_mode = mode
-        self.on_position_selected = callback
+        # Create backup of current state for reverting changes
+        self._backup_positions = {name: Position(**asdict(pos)) for name, pos in self.positions.items()}
+        self._backup_chips = [ChipConfig(amount=chip.amount, position=Position(**asdict(chip.position))) for chip in self.chips]
+        
+        # Check if window already exists
+        if hasattr(self, 'selection_window') and self.selection_window and self.selection_window.winfo_exists():
+            self.selection_window.lift()
+            self.selection_window.focus_force()
+            return
+        
+        print("Creating selection window...")
         self._create_selection_window()
-        self._create_overlay_window()
+        print("Selection window created successfully")
     
     def _create_selection_window(self):
         """Create the main selection interface window"""
         print("Creating selection window...")  # Debug
         
-        # Create the window
-        self.selection_window = tk.Toplevel()
+        # Create the selection window
+        if self.root:
+            self.selection_window = tk.Toplevel(self.root)
+        else:
+            self.selection_window = tk.Toplevel()
         self.selection_window.title("Configure Macro Positions")
         self.selection_window.resizable(True, True)  # Allow resizing
         
-        # Make window stay on top and visible
-        self.selection_window.attributes('-topmost', True)
-        self.selection_window.deiconify()
-        self.selection_window.lift()
-        self.selection_window.focus_force()
-        
-        # Add window close event handling
+        # Set window protocol for close button and Alt+F4
         self.selection_window.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
         # Build the UI first
@@ -152,14 +160,31 @@ class MacroInterface:
         width = self.selection_window.winfo_reqwidth()
         height = self.selection_window.winfo_reqheight()
         
-        # Add some padding
-        width += 20
-        height += 20
+        # Add minimal padding for better appearance
+        width += 10  # Minimal width padding
+        height += 50  # Minimal height padding for buttons
         
-        # Ensure minimum height for better usability
-        min_height = 800
+        # Set compact width but taller height
+        min_width = 400
+        min_height = 600
+        max_width = 500
+        max_height = 1000
+        
+        # Ensure width is within bounds
+        if width < min_width:
+            width = min_width
+        elif width > max_width:
+            width = max_width
+            
+        # Ensure height is within bounds
         if height < min_height:
             height = min_height
+        elif height > max_height:
+            height = max_height
+        
+        # Set a good default height to show more content
+        if height < 700:
+            height = 700
         
         # Center the window
         x = (self.selection_window.winfo_screenwidth() // 2) - (width // 2)
@@ -201,6 +226,17 @@ class MacroInterface:
         
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Bind mouse wheel events for scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        # Bind mouse wheel to both canvas and scrollable frame
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        
+        # Also bind to the main window for better coverage
+        self.selection_window.bind("<MouseWheel>", _on_mousewheel)
         
         # Betting Areas Section
         areas_frame = tk.LabelFrame(scrollable_frame, text="Betting Areas (Required)", font=("Arial", 10, "bold"))
@@ -256,48 +292,36 @@ class MacroInterface:
         self.chip_entries = {}
         self.chip_status_labels = {}
         
-        # Create all chips (8 initial chips + any existing custom chips)
-        all_chip_amounts = set()
+        # Create UI for all chips from config file
+        sorted_chips = sorted(self.chips, key=lambda chip: chip.amount)
         
-        # Add predefined amounts if not already in config
-        initial_chips = [1000, 25000, 125000, 500000, 1250000, 2500000, 5000000, 50000000]
-        for amount in initial_chips:
-            all_chip_amounts.add(amount)
-        
-        # Add any existing chips from config
-        for chip in self.chips:
-            all_chip_amounts.add(chip.amount)
-        
-        # Sort all chip amounts
-        sorted_amounts = sorted(all_chip_amounts)
-        
-        # Create chip entries for all amounts
-        for amount in sorted_amounts:
+        # Create chip entries for all chips from config
+        for chip in sorted_chips:
             chip_frame = tk.Frame(chips_frame)
             chip_frame.pack(fill="x", pady=2)
             
             # Editable amount entry
-            amount_var = tk.StringVar(value=str(amount))
+            amount_var = tk.StringVar(value=str(chip.amount))
             amount_entry = tk.Entry(chip_frame, textvariable=amount_var, width=15)
             amount_entry.pack(side="left", padx=5)
             # Bind to save changes immediately when user finishes editing
-            amount_entry.bind('<FocusOut>', lambda e, amt=amount, var=amount_var: self._on_chip_amount_changed(amt, var))
-            amount_entry.bind('<Return>', lambda e, amt=amount, var=amount_var: self._on_chip_amount_changed(amt, var))
-            self.chip_entries[amount] = amount_var
+            amount_entry.bind('<FocusOut>', lambda e, amt=chip.amount, var=amount_var: self._on_chip_amount_changed(amt, var))
+            amount_entry.bind('<Return>', lambda e, amt=chip.amount, var=amount_var: self._on_chip_amount_changed(amt, var))
+            self.chip_entries[chip.amount] = amount_var
             
             # Position status label
             status_label = tk.Label(chip_frame, text="Not set", fg="red", width=15)
             status_label.pack(side="left", padx=5)
-            self.chip_status_labels[amount] = status_label
+            self.chip_status_labels[chip.amount] = status_label
             
             # Select position button
             select_btn = tk.Button(chip_frame, text="Select Position", 
-                                 command=lambda a=amount: self._select_chip_position(a))
+                                 command=lambda a=chip.amount: self._select_chip_position(a))
             select_btn.pack(side="right", padx=5)
             
             # Remove button
             remove_btn = tk.Button(chip_frame, text="Remove", 
-                                 command=lambda a=amount: self._remove_chip_by_amount(a))
+                                 command=lambda a=chip.amount: self._remove_chip_by_amount(a))
             remove_btn.pack(side="right", padx=5)
         
         # Separator
@@ -315,6 +339,24 @@ class MacroInterface:
         # Update status displays
         self._update_status_displays()
         
+        # Add Save and Cancel buttons at the very bottom of the window (outside scrollable area)
+        button_frame = tk.Frame(self.selection_window)
+        button_frame.pack(side="bottom", fill="x", padx=10, pady=10)
+        
+        # Create a centered container for the buttons
+        center_frame = tk.Frame(button_frame)
+        center_frame.pack(expand=True)
+        
+        save_btn = tk.Button(center_frame, text="Save Configuration", 
+                           command=self._save_configuration, 
+                           bg="#4CAF50", fg="white", width=15)
+        save_btn.pack(side="left", padx=5)
+        
+        cancel_btn = tk.Button(center_frame, text="Cancel", 
+                             command=self._cancel_configuration, 
+                             bg="#f44336", fg="white", width=15)
+        cancel_btn.pack(side="left", padx=5)
+        
         # Add key bindings for closing window
         self.selection_window.bind("<Key>", self._on_key_press)
         self.selection_window.focus_set()
@@ -322,7 +364,10 @@ class MacroInterface:
     def _show_all_positions_visual(self):
         """Show visual indicators for all configured positions on screen"""
         # Create a fullscreen overlay to show position indicators
-        indicator_window = tk.Toplevel()
+        if self.root:
+            indicator_window = tk.Toplevel(self.root)
+        else:
+            indicator_window = tk.Toplevel()
         indicator_window.attributes('-alpha', 0.3)  # Much more transparent overlay (30% opacity)
         indicator_window.attributes('-topmost', True)
         indicator_window.overrideredirect(True)
@@ -415,11 +460,10 @@ class MacroInterface:
                 # In overlay mode - cancel selection
                 self._cancel_overlay()
             else:
-                # In selection window mode - close window
-                self._close_configuration()
-        elif event.state & 0x20000 and event.keysym == 'F4':  # Alt+F4
-            # Close selection window
-            self._close_configuration()
+                # In selection window mode - cancel configuration
+                self._cancel_configuration()
+        elif event.keysym == 'F4' and event.state & 0x20000:  # Alt+F4
+            self._cancel_configuration()
     
     def _on_mouse_motion(self, event):
         """Handle mouse motion to show circle at mouse position"""
@@ -496,6 +540,10 @@ class MacroInterface:
     
     def _show_overlay_instructions(self):
         """Show instructions on the overlay window"""
+        # Create overlay window if it doesn't exist
+        if not hasattr(self, 'overlay_window') or not self.overlay_window:
+            self._create_overlay_window()
+        
         if self.overlay_window:
             self.overlay_window.deiconify()
             self.overlay_window.lift()
@@ -545,7 +593,10 @@ class MacroInterface:
         print("Creating overlay window...")  # Debug
         
         try:
-            self.overlay_window = tk.Toplevel()
+            if self.root:
+                self.overlay_window = tk.Toplevel(self.root)
+            else:
+                self.overlay_window = tk.Toplevel()
             self.overlay_window.attributes('-alpha', 0.5)
             self.overlay_window.attributes('-topmost', True)
             self.overlay_window.overrideredirect(True)
@@ -638,57 +689,26 @@ class MacroInterface:
                 
                 # Check if chip already exists
                 existing_chip = next((chip for chip in self.chips if chip.amount == amount), None)
+                
                 if existing_chip:
+                    # Update existing chip position
                     existing_chip.position = position
                     print(f"Updated chip {amount} position to ({x}, {y}) - {monitor_info}")
                 else:
-                    self.chips.append(ChipConfig(amount=amount, position=position))
+                    # Create new chip
+                    new_chip = ChipConfig(amount=amount, position=position)
+                    self.chips.append(new_chip)
                     print(f"Added new chip {amount} at ({x}, {y}) - {monitor_info}")
                 
                 # Clear pending amount
                 self._pending_chip_amount = None
-                
-                # Handle reselecting chip
-                if hasattr(self, '_reselecting_chip') and self._reselecting_chip:
-                    self._reselecting_chip = None
         
-        # Save configuration immediately
-        self._update_chip_amounts_from_entries()
-        self.save_config()
-        print("Configuration saved immediately")
-        
-        # Properly reset selection mode and release grab
-        print(f"Resetting selection mode from {self.selection_mode} to NONE")  # Debug
-        self.selection_mode = SelectionMode.NONE
-        
-        # Release grab if set
-        try:
-            if self.overlay_window:
-                self.overlay_window.grab_release()
-                print("Released overlay grab")  # Debug
-        except:
-            pass
-        
-        # Hide overlay
-        self.overlay_window.withdraw()
-        print("Overlay window hidden")  # Debug
-        
-        # Restore the configuration window and main window
-        try:
-            if self.selection_window:
-                self.selection_window.deiconify()
-                self.selection_window.lift()
-                self.selection_window.focus_force()
-            root = self.selection_window.master
-            if isinstance(root, tk.Tk):
-                root.deiconify()
-                root.lift()
-                root.focus_force()
-        except Exception:
-            pass
-        
+        # Update status displays to reflect changes
         self._update_status_displays()
-
+        
+        # Hide overlay and restore windows
+        self._hide_overlay_and_restore_windows()
+    
     def _get_chip_amount_and_save(self, x: int, y: int):
         """Get chip amount from user and save position (fallback method)"""
         amount = simpledialog.askinteger("Chip Amount", 
@@ -808,6 +828,14 @@ class MacroInterface:
                     self.selection_window.focus_force()
                 return
             
+            # Add chip to local variables immediately
+            new_chip = ChipConfig(amount=amount, position=Position(x=0, y=0, width=50, height=50, name=f"chip_{amount}"))
+            self.chips.append(new_chip)
+            print(f"Added new chip {amount} to local variables")
+            
+            # Rebuild UI to show the new chip
+            self._rebuild_chip_ui()
+            
             # Store the amount for later position selection
             self._pending_chip_amount = amount
             # Start position selection for this chip
@@ -826,7 +854,7 @@ class MacroInterface:
             self._show_overlay_instructions()
     
     def _on_chip_amount_changed(self, original_amount: int, amount_var: tk.StringVar):
-        """Handle chip amount changes and save immediately"""
+        """Handle chip amount changes"""
         try:
             new_amount = int(amount_var.get())
             if new_amount > 0 and new_amount != original_amount:
@@ -847,11 +875,7 @@ class MacroInterface:
                     self.chips.append(new_chip)
                     print(f"Added new chip with amount {new_amount}")
                 
-                # Save configuration immediately
-                self.save_config()
-                print(f"Configuration saved immediately after chip amount change")
-                
-                # Rebuild the UI to reflect the new amount
+                # Update UI to reflect the new amount
                 self._rebuild_chip_ui()
                 
         except ValueError:
@@ -926,68 +950,104 @@ class MacroInterface:
                 self.selection_window.focus_force()
     
     def _remove_chip_by_amount(self, amount: int):
-        """Remove a chip by amount"""
-        # Find the chip with this amount
-        chip_to_remove = next((chip for chip in self.chips if chip.amount == amount), None)
+        """Remove a chip by its amount"""
+        # Find and remove the chip
+        self.chips = [chip for chip in self.chips if chip.amount != amount]
+        print(f"Removed chip with amount {amount}")
         
-        if chip_to_remove:
-            if messagebox.askyesno("Remove Chip", f"Remove chip {amount}?"):
-                self.chips.remove(chip_to_remove)
-                # Save configuration immediately after removing chip
-                self.save_config()
-                print(f"Removed chip {amount} and saved configuration")
-                # Refresh the UI to rebuild the chip list
-                self._rebuild_chip_ui()
-                # Bring the message box to front
-                if self.selection_window and self.selection_window.winfo_exists():
-                    self.selection_window.lift()
-                    self.selection_window.focus_force()
-        else:
-            messagebox.showwarning("Chip Not Found", f"Chip {amount} not found in configuration.")
+        # Rebuild the UI to reflect the removal
+        self._rebuild_chip_ui()
 
     def _rebuild_chip_ui(self):
-        """Rebuild the chip UI after changes"""
-        if hasattr(self, 'selection_window') and self.selection_window:
-            # Rebuild the entire UI to reflect changes
-            self._build_selection_ui()
+        """Rebuild the entire chip UI section"""
+        # Find the chips frame
+        for widget in self.selection_window.winfo_children():
+            if isinstance(widget, tk.Frame):
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Canvas):
+                        for canvas_child in child.winfo_children():
+                            if isinstance(canvas_child, tk.Frame):
+                                for frame_child in canvas_child.winfo_children():
+                                    if isinstance(frame_child, tk.LabelFrame) and frame_child.cget("text") == "Chips":
+                                        # Clear the chips frame
+                                        for chip_widget in frame_child.winfo_children():
+                                            if isinstance(chip_widget, tk.Frame):
+                                                chip_widget.destroy()
+                                        
+                                        # Remove the separator if it exists
+                                        for chip_widget in frame_child.winfo_children():
+                                            if isinstance(chip_widget, ttk.Separator):
+                                                chip_widget.destroy()
+                                        
+                                        # Remove the add button if it exists
+                                        for chip_widget in frame_child.winfo_children():
+                                            if isinstance(chip_widget, tk.Button) and chip_widget.cget("text") == "+ Add Custom Chip":
+                                                chip_widget.destroy()
+                                        
+                                        # Rebuild chip entries
+                                        self.chip_entries = {}
+                                        self.chip_status_labels = {}
+                                        
+                                        # Create UI for all chips from config file
+                                        sorted_chips = sorted(self.chips, key=lambda chip: chip.amount)
+                                        
+                                        # Create chip entries for all chips from config
+                                        for chip in sorted_chips:
+                                            chip_frame = tk.Frame(frame_child)
+                                            chip_frame.pack(fill="x", pady=2)
+                                            
+                                            # Editable amount entry
+                                            amount_var = tk.StringVar(value=str(chip.amount))
+                                            amount_entry = tk.Entry(chip_frame, textvariable=amount_var, width=15)
+                                            amount_entry.pack(side="left", padx=5)
+                                            # Bind to save changes immediately when user finishes editing
+                                            amount_entry.bind('<FocusOut>', lambda e, amt=chip.amount, var=amount_var: self._on_chip_amount_changed(amt, var))
+                                            amount_entry.bind('<Return>', lambda e, amt=chip.amount, var=amount_var: self._on_chip_amount_changed(amt, var))
+                                            self.chip_entries[chip.amount] = amount_var
+                                            
+                                            # Position status label
+                                            status_label = tk.Label(chip_frame, text="Not set", fg="red", width=15)
+                                            status_label.pack(side="left", padx=5)
+                                            self.chip_status_labels[chip.amount] = status_label
+                                            
+                                            # Select position button
+                                            select_btn = tk.Button(chip_frame, text="Select Position", 
+                                                                 command=lambda a=chip.amount: self._select_chip_position(a))
+                                            select_btn.pack(side="right", padx=5)
+                                            
+                                            # Remove button
+                                            remove_btn = tk.Button(chip_frame, text="Remove", 
+                                                                 command=lambda a=chip.amount: self._remove_chip_by_amount(a))
+                                            remove_btn.pack(side="right", padx=5)
+                                        
+                                        # Add separator
+                                        ttk.Separator(frame_child, orient="horizontal").pack(fill="x", pady=10)
+                                        
+                                        # Add custom chip button
+                                        add_chip_btn = tk.Button(frame_child, text="+ Add Custom Chip", 
+                                                                command=self._add_custom_chip, bg="#4CAF50", fg="white")
+                                        add_chip_btn.pack(pady=5)
+                                        
+                                        # Update status displays
+                                        self._update_status_displays()
+                                        return
     
     def _update_chip_amounts_from_entries(self):
-        """Update chip amounts from the entry fields"""
-        print("Updating chip amounts from entry fields...")
-        
-        # Update predefined chips
-        for original_amount, amount_var in self.chip_entries.items():
+        """Update chip amounts from entry fields"""
+        for amount, amount_var in self.chip_entries.items():
             try:
                 new_amount = int(amount_var.get())
-                if new_amount > 0:
-                    # Find the chip with the original amount and update it
-                    chip_found = False
+                if new_amount > 0 and new_amount != amount:
+                    # Find and update the chip
                     for chip in self.chips:
-                        if chip.amount == original_amount:
-                            old_amount = chip.amount
+                        if chip.amount == amount:
                             chip.amount = new_amount
-                            print(f"Updated chip amount from {old_amount} to {new_amount}")
-                            chip_found = True
+                            print(f"Updated chip amount from {amount} to {new_amount}")
                             break
-                    
-                    if not chip_found:
-                        # If chip doesn't exist yet, create it (without position)
-                        new_chip = ChipConfig(amount=new_amount, position=Position(x=0, y=0, width=50, height=50, name=f"chip_{new_amount}"))
-                        self.chips.append(new_chip)
-                        print(f"Added new chip with amount {new_amount}")
             except ValueError:
-                print(f"Invalid amount for chip {original_amount}: {amount_var.get()}")
-        
-        # Update custom chips (if any entry fields exist for them)
-        # This part is no longer needed as custom chips are managed by the unified chip system
-        # The _rebuild_chip_ui method handles rebuilding the entire chip UI.
-        # The _update_chip_amounts_from_entries method is now primarily for predefined chips.
-        # The _on_chip_amount_changed method handles custom chip amount changes.
-        # The _reselect_chip method handles reselecting a custom chip.
-        # The _remove_chip_by_amount method handles removing a custom chip by amount.
-        # The _rebuild_chip_ui method handles rebuilding the entire chip UI.
-
-        print(f"Updated {len(self.chips)} chips with new amounts")
+                print(f"Invalid amount in entry: {amount_var.get()}")
+                # Revert to original amount
+                amount_var.set(str(amount))
     
     def _cancel_selection(self):
         """Cancel the selection process"""
@@ -997,55 +1057,31 @@ class MacroInterface:
             if self.overlay_window:
                 self.overlay_window.destroy()
     
-    def _close_without_save(self):
-        """Close the selection window (changes are already auto-saved)"""
-        # Close windows
-        if self.selection_window:
-            self.selection_window.destroy()
-        if self.overlay_window:
-            self.overlay_window.destroy()
-        
-        # Call callback if provided
-        if self.on_position_selected:
-            self.on_position_selected()
-    
-    def _close_configuration(self):
-        """Close the selection window (changes are already auto-saved)"""
-        # Close windows
-        if self.selection_window:
-            self.selection_window.destroy()
-        if self.overlay_window:
-            self.overlay_window.destroy()
-        
-        # Call callback if provided
-        if self.on_position_selected:
-            self.on_position_selected()
+
 
     def _on_window_close(self):
-        """Handle window close event to save configuration"""
-        # Since all changes are auto-saved, just close the window
+        """Handle window close event"""
         try:
-            # Close windows
+            self._cancel_configuration()
+        except Exception as e:
+            print(f"Error closing window: {e}")
             if self.selection_window:
                 self.selection_window.destroy()
-            if self.overlay_window:
-                self.overlay_window.destroy()
-            
-            # Call callback if provided
-            if self.on_position_selected:
-                self.on_position_selected()
-                
-        except Exception as e:
-            print(f"Error during window close: {e}")
-            # Ensure windows are destroyed even if there's an error
-            try:
-                if self.selection_window:
-                    self.selection_window.destroy()
-                if self.overlay_window:
-                    self.overlay_window.destroy()
-            except:
-                pass
-
+                self.selection_window = None
+    
+    def _on_key_press(self, event):
+        """Handle key press events"""
+        if event.keysym == 'Escape':
+            # Check if we're in overlay mode or selection window mode
+            if hasattr(self, 'overlay_window') and self.overlay_window and self.overlay_window.winfo_viewable():
+                # In overlay mode - cancel selection
+                self._cancel_overlay()
+            else:
+                # In selection window mode - cancel configuration
+                self._cancel_configuration()
+        elif event.keysym == 'F4' and event.state & 0x20000:  # Alt+F4
+            self._cancel_configuration()
+    
     def get_position(self, name: str) -> Optional[Position]:
         """Get a saved position by name"""
         return self.positions.get(name)
@@ -1065,3 +1101,83 @@ class MacroInterface:
         """Check if all required positions are configured"""
         required_positions = ['player_area', 'banker_area', 'cancel_button']
         return all(pos in self.positions for pos in required_positions) 
+
+    def _save_configuration(self):
+        """Save current configuration to file"""
+        # Update chip amounts from entry fields before saving
+        self._update_chip_amounts_from_entries()
+        
+        # Save to file (without ensuring initial chips exist)
+        data = {
+            'positions': {name: asdict(pos) for name, pos in self.positions.items()},
+            'chips': [{'amount': chip.amount, 'position': asdict(chip.position)} for chip in self.chips]
+        }
+        
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(data, f, indent=2)
+            print(f"Configuration saved successfully to {self.config_path}")
+            print(f"Saved {len(self.positions)} positions and {len(self.chips)} chips")
+            for name, pos in self.positions.items():
+                print(f"  - {name}: ({pos.x}, {pos.y})")
+            for chip in self.chips:
+                print(f"  - Chip {chip.amount}: ({chip.position.x}, {chip.position.y})")
+        except Exception as e:
+            print(f"Error saving config: {e}")
+        
+        # Update backup to current state
+        self._backup_positions = {name: Position(**asdict(pos)) for name, pos in self.positions.items()}
+        self._backup_chips = [ChipConfig(amount=chip.amount, position=Position(**asdict(chip.position))) for chip in self.chips]
+        
+        # Close the window
+        if self.selection_window:
+            self.selection_window.destroy()
+            self.selection_window = None
+    
+    def _cancel_configuration(self):
+        """Cancel changes and revert to original state"""
+        # Revert positions to backup
+        self.positions = {name: Position(**asdict(pos)) for name, pos in self._backup_positions.items()}
+        
+        # Revert chips to backup
+        self.chips = [ChipConfig(amount=chip.amount, position=Position(**asdict(chip.position))) for chip in self._backup_chips]
+        
+        # Close the window
+        if self.selection_window:
+            self.selection_window.destroy()
+            self.selection_window = None 
+
+    def _hide_overlay_and_restore_windows(self):
+        """Hide overlay window and restore configuration and main windows"""
+        # Properly reset selection mode and release grab
+        print(f"Resetting selection mode from {self.selection_mode} to NONE")  # Debug
+        self.selection_mode = SelectionMode.NONE
+        
+        # Release grab if set
+        try:
+            if self.overlay_window:
+                self.overlay_window.grab_release()
+                print("Released overlay grab")  # Debug
+        except:
+            pass
+        
+        # Hide overlay
+        if self.overlay_window:
+            self.overlay_window.withdraw()
+            print("Overlay window hidden")  # Debug
+        
+        # Restore the configuration window and main window
+        try:
+            if self.root:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_force()
+            if self.selection_window:
+                self.selection_window.deiconify()
+                self.selection_window.lift()
+                self.selection_window.focus_force()
+                # Ensure configuration window is above main window
+                self.selection_window.attributes('-topmost', True)
+                self.selection_window.after(100, lambda: self.selection_window.attributes('-topmost', False))
+        except Exception:
+            pass 

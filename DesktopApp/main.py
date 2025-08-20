@@ -35,9 +35,9 @@ class BetAutomationApp:
 		self.ws_thread = threading.Thread(target=self._run_loop, daemon=True)
 		self.keep_running: bool = False
 		
-		# Macro interface
-		self.macro_interface = MacroInterface()
-		self.macro_betting = MacroBaccarat(self.macro_interface, logger=self._append_log)
+		# Macro interface - will be initialized after root is created
+		self.macro_interface = None
+		self.macro_betting = None
 		
 		# UI refs
 		self.root = None
@@ -65,6 +65,10 @@ class BetAutomationApp:
 		self.root = tk.Tk()
 		self.root.title('Bet Automation - Macro Interface')
 		# Remove fixed geometry to let window size adjust to content
+
+		# Initialize macro interface after root is created
+		self.macro_interface = MacroInterface(self.root)
+		self.macro_betting = MacroBaccarat(self.macro_interface, logger=self._append_log)
 
 		# Main container with padding
 		main_frame = tk.Frame(self.root, padx=20, pady=20)
@@ -205,20 +209,12 @@ class BetAutomationApp:
 		print("Opening configuration...")  # Debug
 		self._append_log("Opening position configuration...")
 		try:
-			self.macro_interface.start_position_selection(SelectionMode.NONE, self._on_configuration_complete)
+			self.macro_interface.start_position_selection()
 			print("Configuration window should be open now")
 		except Exception as e:
 			print(f"Error opening configuration: {e}")
 			self._append_log(f"Error opening configuration: {e}")
 			messagebox.showerror("Error", f"Failed to open configuration: {e}")
-
-	def _on_configuration_complete(self):
-		"""Called when configuration is completed"""
-		self._append_log("Configuration completed successfully!")
-		if self.macro_betting.is_configured():
-			self._set_status("Macro positions configured and ready")
-		else:
-			self._set_status("Configuration incomplete - please configure all positions")
 
 	def _check_configuration_status(self):
 		"""Check and display current configuration status"""

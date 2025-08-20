@@ -18,13 +18,13 @@ class PragmaticBaccarat:
 		self.banker_alpha = None
 		
 		try:
-			self.player_tpl_bgr, self.player_alpha = load_image_with_alpha(self.cfg['templates']['player_area'])
+		self.player_tpl_bgr, self.player_alpha = load_image_with_alpha(self.cfg['templates']['player_area'])
 		except Exception as e:
 			if self.logger:
 				self.logger(f"Player area template missing: {self.cfg['templates']['player_area']} - {e}")
 		
 		try:
-			self.banker_tpl_bgr, self.banker_alpha = load_image_with_alpha(self.cfg['templates']['banker_area'])
+		self.banker_tpl_bgr, self.banker_alpha = load_image_with_alpha(self.cfg['templates']['banker_area'])
 		except Exception as e:
 			if self.logger:
 				self.logger(f"Banker area template missing: {self.cfg['templates']['banker_area']} - {e}")
