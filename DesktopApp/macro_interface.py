@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from typing import Dict, List, Optional, Tuple, Callable
@@ -31,7 +32,16 @@ class SelectionMode(Enum):
 class MacroInterface:
     def __init__(self, root: Optional[tk.Tk] = None, config_path: str = "macro_config.json"):
         self.root = root
-        self.config_path = config_path
+        
+        # Handle both script and executable paths
+        if getattr(sys, 'frozen', False):
+            # Running as executable (PyInstaller)
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        self.config_path = os.path.join(base_dir, config_path)
         self.positions: Dict[str, Position] = {}
         self.chips: List[ChipConfig] = []
         self.selection_mode = SelectionMode.NONE

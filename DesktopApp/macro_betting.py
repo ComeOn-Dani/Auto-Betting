@@ -86,7 +86,7 @@ class MacroBaccarat:
             # Click chip first
             self.log(f"Clicking chip at coordinates: ({chip_pos.x},{chip_pos.y})")
             click_center((chip_pos.x, chip_pos.y, chip_pos.width, chip_pos.height))
-            time.sleep(0.2)
+            time.sleep(0.05)
             # Then click bet area
             self.log(f"Clicking bet area at coordinates: ({area_pos.x},{area_pos.y})")
             click_center((area_pos.x, area_pos.y, area_pos.width, area_pos.height))
@@ -104,20 +104,32 @@ class MacroBaccarat:
         
         self.log(f"Chip composition plan: {plan}")
         
-        # Click all chips first
-        for idx, chip_amount in enumerate(plan, start=1):
+        # Group chips by amount and click them in sequence
+        chip_groups = {}
+        for chip_amount in plan:
+            if chip_amount not in chip_groups:
+                chip_groups[chip_amount] = 0
+            chip_groups[chip_amount] += 1
+        
+        self.log(f"Chip groups: {chip_groups}")
+        
+        # For each unique chip amount, click the chip once, then click bet area multiple times
+        for chip_amount, count in chip_groups.items():
             chip_pos = self.get_chip_position(chip_amount)
             if not chip_pos:
                 self.log(f"Error: chip_not_found ({chip_amount})")
                 return False, 'chip_not_found'
             
-            self.log(f"Clicking chip {chip_amount} at ({chip_pos.x},{chip_pos.y}) [{idx}/{len(plan)}]")
+            # Click the chip once
+            self.log(f"Clicking chip {chip_amount} at ({chip_pos.x},{chip_pos.y})")
             click_center((chip_pos.x, chip_pos.y, chip_pos.width, chip_pos.height))
-            time.sleep(0.2)
-        
-        # Then click bet area once
-        self.log(f"Clicking bet area at coordinates: ({area_pos.x},{area_pos.y})")
-        click_center((area_pos.x, area_pos.y, area_pos.width, area_pos.height))
+            time.sleep(0.05)
+            
+            # Click bet area 'count' times for this chip
+            for i in range(count):
+                self.log(f"Clicking bet area for chip {chip_amount} ({i+1}/{count})")
+                click_center((area_pos.x, area_pos.y, area_pos.width, area_pos.height))
+                time.sleep(0.05)
         
         self.log("Click sequence completed (composed chips)")
         return True, 'ok'
@@ -144,7 +156,7 @@ class MacroBaccarat:
         # Click cancel button the calculated number of times
         for i in range(clicks_needed):
             click_center((cancel_pos.x, cancel_pos.y, cancel_pos.width, cancel_pos.height))
-            time.sleep(0.25)
+            time.sleep(0.05)
         
         self.log(f"Cancel: clicked {clicks_needed} time(s)")
         return True, 'ok'

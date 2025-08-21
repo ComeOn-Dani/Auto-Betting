@@ -2,6 +2,7 @@ import asyncio
 import json
 import threading
 import time
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -82,13 +83,11 @@ class BetAutomationApp:
 		self.user_label.pack(pady=4)
 		self.username_entry = tk.Entry(main_frame, width=30)
 		self.username_entry.pack()
-		self.username_entry.insert(0, "user1") 
 
 		self.pass_label = tk.Label(main_frame, text='Password')
 		self.pass_label.pack(pady=4)
 		self.password_entry = tk.Entry(main_frame, show='*', width=30)
 		self.password_entry.pack()
-		self.password_entry.insert(0, "123456") 
 
 		self.login_btn = tk.Button(main_frame, text='Login', command=self.login, 
 								  bg="#4CAF50", fg="white", width=20)
@@ -109,7 +108,7 @@ class BetAutomationApp:
 
 		# Log area (hidden until login)
 		self.log_frame = tk.Frame(main_frame)
-		self.log_text = tk.Text(self.log_frame, height=12, state='disabled')
+		self.log_text = tk.Text(self.log_frame, height=8, state='disabled')
 		scroll = tk.Scrollbar(self.log_frame, command=self.log_text.yview)
 		self.log_text.configure(yscrollcommand=scroll.set)
 		self.log_text.pack(side='left', fill='both', expand=True)
@@ -270,9 +269,9 @@ class BetAutomationApp:
 	def _resize_window_for_logged_in(self):
 		"""Resize window to accommodate logged-in content"""
 		self.root.update_idletasks()
-		# Set a larger size for logged-in state
+		# Set a smaller size for logged-in state with reduced log height
 		width = 500
-		height = 600
+		height = 450
 		x = (self.root.winfo_screenwidth() // 2) - (width // 2)
 		y = (self.root.winfo_screenheight() // 2) - (height // 2)
 		self.root.geometry(f"{width}x{height}+{x}+{y}")
@@ -418,11 +417,20 @@ class BetAutomationApp:
 
 
 def load_config() -> Config:
-	base_dir = os.path.dirname(os.path.abspath(__file__))
-	cfg_path = os.path.join(base_dir, 'config.json')
-	with open(cfg_path, 'r', encoding='utf-8') as f:
-		raw = json.load(f)
-	return Config(controller_http=raw['controller']['http_url'], controller_ws=raw['controller']['ws_url'], raw=raw)
+	# Use hardcoded server addresses - no config file needed
+	server_config = {
+		'controller': {
+			'http_url': 'https://absolutely-stirring-racer.ngrok-free.app',
+			'ws_url': 'wss://quality-crappie-painfully.ngrok-free.app',
+		}
+	}
+	
+	print("Using hardcoded server configuration")
+	return Config(
+		controller_http=server_config['controller']['http_url'],
+		controller_ws=server_config['controller']['ws_url'],
+		raw=server_config
+	)
 
 
 if __name__ == '__main__':
