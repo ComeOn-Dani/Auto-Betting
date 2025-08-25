@@ -41,8 +41,7 @@ function verifyToken(token) {
 }
 
 const app = express();
-const PORT = 3000;
-const WS_PORT = 8080;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -54,8 +53,8 @@ app.get('/', (req, res) => {
   res.redirect('/login.html');
 });
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: WS_PORT });
+// For Vercel deployment, we'll use a separate WebSocket endpoint
+// WebSocket server will be handled by /api/ws.js
 
 // Store connected clients
 const clients = new Map();
@@ -790,5 +789,7 @@ app.get('/api/user/license', (req, res) => {
 // Start Express server
 app.listen(PORT, () => {
   console.log(`Controller server running on http://localhost:${PORT}`);
-  console.log(`WebSocket server running on ws://localhost:${WS_PORT}`);
 });
+
+// Export for Vercel
+module.exports = app;

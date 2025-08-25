@@ -6,7 +6,7 @@ const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'
 const tbody=document.querySelector('#userTable tbody');
 
 function loadUsers(){
-  fetch('/api/users',{headers})
+  fetch(`${window.appConfig.apiBase}/api/users`,{headers})
     .then(r=>r.json())
     .then(users=>{
       tbody.innerHTML='';
@@ -88,7 +88,7 @@ document.getElementById('addBtn').addEventListener('click',()=>{
   const u=document.getElementById('newUser').value.trim();
   const p=document.getElementById('newPass').value.trim();
   if(!u||!p)return;
-  fetch('/api/users',{method:'POST',headers,body:JSON.stringify({username:u,password:p})})
+  fetch(`${window.appConfig.apiBase}/api/users`,{method:'POST',headers,body:JSON.stringify({username:u,password:p})})
     .then(r=>r.json())
     .then(()=>{
       loadUsers();
@@ -109,7 +109,7 @@ tbody.addEventListener('click',(e)=>{
 document.getElementById('changePassBtn').addEventListener('click',()=>{
   const p=document.getElementById('newAdminPass').value.trim();
   if(!p) return;
-  fetch('/api/users/admin',{method:'PUT',headers,body:JSON.stringify({password:p})}).then(r=>r.json()).then(()=>{
+  fetch(`${window.appConfig.apiBase}/api/users/admin`,{method:'PUT',headers,body:JSON.stringify({password:p})}).then(r=>r.json()).then(()=>{
     alert('Password updated');
     document.getElementById('newAdminPass').value='';
   });

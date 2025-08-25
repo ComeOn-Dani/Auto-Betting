@@ -92,7 +92,7 @@ async function displayLicenseInfo() {
     }
   
   try {
-    const response = await fetch('/api/user/license', {
+    const response = await fetch(`${window.appConfig.apiBase}/api/user/license`, {
       headers: {
         'Authorization': `Bearer ${storedToken}`,
         'Content-Type': 'application/json'
@@ -240,8 +240,7 @@ const placeBetPc2Btn = document.getElementById('place-bet-pc2');
 const betBtnRow = document.querySelector('.bet-btn-row');
 
 // Configuration
-// const WS_BASE = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
-const WS_BASE = 'ws://localhost:8080';
+const WS_BASE = window.appConfig.wsBase;
 
 // Initialize WebSocket connection for status updates
 let statusWs = null;
@@ -685,7 +684,7 @@ placeBetPc1Btn.addEventListener('click', async () => {
     user: currentUser,
   };  
   try {
-    const response = await fetch('/api/bet', {
+    const response = await fetch(`${window.appConfig.apiBase}/api/bet`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -718,7 +717,7 @@ placeBetPc2Btn.addEventListener('click', async () => {
     user: currentUser,
   };
   try {
-    const response = await fetch('/api/bet', {
+    const response = await fetch(`${window.appConfig.apiBase}/api/bet`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -828,7 +827,7 @@ addLog('Platform: Pragmatic only', 'info');
 // Cancel all bets handler
 cancelAllBtn.addEventListener('click', async () => {
   try {
-    const response = await fetch('/api/cancelBetAll', {
+    const response = await fetch(`${window.appConfig.apiBase}/api/cancelBetAll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: currentUser }),
