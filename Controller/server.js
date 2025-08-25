@@ -76,271 +76,12 @@ function getRoom(user) {
   return rooms.get(user);
 }
 
-// WebSocket connection handler
-wss.on('connection', (ws, req) => {
-  console.log('New WebSocket connection');
+// Note: WebSocket handling is moved to /api/ws.js for Vercel compatibility
 
-  // Generate unique client ID
-  const clientId = Date.now().toString();
+// Track active bets for each room
+const activeBets = new Map(); // roomId -> { betId, PC1: { status, startTime }, PC2: { status, startTime } }
 
-  let room = null;
-  let clientUser = null;
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log('Received:', data);
-
-      // Auth gate: expect first message type hello with token
-      if (!clientUser) {
-        if (data.type !== 'hello' || !data.token) {
-          ws.close();
-          return;
-        }
-        const payload = verifyToken(data.token);
-        if (!payload) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Invalid token' }));
-          ws.close();
-          return;
-        }
-        
-        // Check license status
-        const userRecord = USERS[payload.user];
-        if (userRecord) {
-          const currentDate = new Date().toISOString().split('T')[0];
-          
-          // Check if user has no license
-          if (!userRecord.licenseEndDate) {
-            ws.send(JSON.stringify({ 
-              type: 'error', 
-              message: 'No license found. Please contact administrator to purchase a license.',
-              noLicense: true 
-            }));
-            ws.close();
-            return;
-          }
-          
-          // Check if license is expired
-          if (currentDate > userRecord.licenseEndDate) {
-            ws.send(JSON.stringify({ 
-              type: 'error', 
-              message: 'License expired. Please contact administrator to renew your license.',
-              licenseExpired: true 
-            }));
-            ws.close();
-            return;
-          }
-        }
-        
-        clientUser = payload.user;
-        room = getRoom(clientUser);
-        // proceed; do not process further this initial hello
-        return;
-      }
-
-      // Handle pong from client for heartbeat
-      if (data.type === 'pong') {
-        if (room && room.clients.has(clientId)) {
-          room.clients.get(clientId).isAlive = true;
-        }
-        return; // no further processing
-      }
-
-      // Handle status listener registration
-      if (data.type === 'registerStatusListener') {
-        if (!room) return;
-        room.statusListeners.add(ws);
-        console.log('Registered status listener');
-        // Send current status immediately
-        sendStatusToClientRoom(ws, room);
-      }
-
-      // Handle PC assignment request
-      if (data.type === 'requestAssignment') {
-        let assignedPC = null;
-
-        // Assign PC1 if available, otherwise PC2 within room
-        if (!room.assignedPCs.has('PC1')) {
-          assignedPC = 'PC1';
-        } else if (!room.assignedPCs.has('PC2')) {
-          assignedPC = 'PC2';
-        } else {
-          // Both PCs are taken
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              message: 'Both PC slots are occupied' + JSON.stringify(room),
-            }),
-          );
-          ws.close();
-          return;
-        }
-
-        // Mark PC as assigned; store on ws in case registration never arrives
-        room.assignedPCs.add(assignedPC);
-        ws.tempAssignedPC = assignedPC;
-
-        // Send assignment to client
-        ws.send(
-          JSON.stringify({
-            type: 'assignment',
-            pc: assignedPC,
-          }),
-        );
-
-        console.log(`Assigned ${assignedPC} to client ${clientId}`);
-        broadcastStatus(room);
-      }
-
-      // Handle client registration
-      if (data.type === 'register') {
-        room.clients.set(clientId, {
-          ws: ws,
-          pc: data.pc,
-          id: clientId,
-          isAlive: true,
-        });
-
-        ws.send(
-          JSON.stringify({
-            type: 'registered',
-            clientId: clientId,
-            pc: data.pc,
-          }),
-        );
-
-        console.log(`${data.pc} registered`);
-        broadcastStatus(room);
-        // registration complete; clear provisional flag
-        delete ws.tempAssignedPC;
-      }
-
-      // Handle bet error
-      if (data.type === 'betError') {
-        console.log(`Bet error from ${data.pc}:`, data.message);
-        console.log('Error details:', {
-          errorType: data.errorType,
-          errorDetails: data.errorDetails,
-          availableChips: data.availableChips,
-          triedSelectors: data.triedSelectors,
-          chipValue: data.chipValue,
-          timestamp: data.timestamp
-        });
-
-        // Broadcast error to all status listeners
-        room.statusListeners.forEach((listener) => {
-          if (listener.readyState === WebSocket.OPEN) {
-            listener.send(
-              JSON.stringify({
-                type: 'betError',
-                pc: data.pc,
-                message: data.message,
-                platform: data.platform,
-                amount: data.amount,
-                side: data.side,
-                errorType: data.errorType,
-                errorDetails: data.errorDetails,
-                availableChips: data.availableChips,
-                triedSelectors: data.triedSelectors,
-                chipValue: data.chipValue,
-                timestamp: data.timestamp
-              }),
-            );
-          }
-        });
-
-        // Handle bet failure for simultaneous betting
-        const activeBet = activeBets.get(room.id);
-        if (activeBet) {
-          // Mark this PC as failed
-          activeBet[data.pc] = { status: 'failed', error: data.message, errorType: data.errorType };
-          
-          // Cancel the opposite PC's bet if it's still pending
-          const oppositePC = data.pc === 'PC1' ? 'PC2' : 'PC1';
-          if (activeBet[oppositePC] && activeBet[oppositePC].status === 'pending') {
-            console.log(`Cancelling bet on ${oppositePC} due to failure on ${data.pc}`);
-            sendCancelBet(oppositePC, data.platform, data.amount, data.side, room);
-            activeBet[oppositePC] = { status: 'cancelled', reason: `Cancelled due to failure on ${data.pc}` };
-          }
-          
-          // Clean up the bet tracking after a short delay
-          setTimeout(() => {
-            activeBets.delete(room.id);
-            console.log(`Cleaned up bet tracking for room ${room.id}`);
-          }, 5000);
-        } else {
-          // For single PC bets, don't automatically cancel the opposite PC
-          // This prevents the cascade of error messages
-          console.log(`Single PC bet failed on ${data.pc} - not cancelling opposite PC`);
-        }
-      }
-
-      // Handle bet success
-      if (data.type === 'betSuccess') {
-        console.log(`Bet success from ${data.pc}:`, data);
-        
-        // Handle bet success for simultaneous betting
-        const activeBet = activeBets.get(room.id);
-        if (activeBet) {
-          // Mark this PC as successful
-          activeBet[data.pc] = { status: 'success', timestamp: Date.now() };
-          
-          // Check if both PCs have completed
-          const pc1Status = activeBet.PC1.status;
-          const pc2Status = activeBet.PC2.status;
-          
-          if (pc1Status !== 'pending' && pc2Status !== 'pending') {
-            // Both PCs have completed (success or failure)
-            if (pc1Status === 'success' && pc2Status === 'success') {
-              console.log(`Both PCs successfully placed bets for ${activeBet.betId}`);
-            } else {
-              console.log(`Bet completed with mixed results: PC1=${pc1Status}, PC2=${pc2Status}`);
-            }
-            
-            // Clean up the bet tracking
-            activeBets.delete(room.id);
-            console.log(`Cleaned up bet tracking for room ${room.id}`);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error processing message:', error);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
-
-    // Remove from status listeners if present
-    if (room) room.statusListeners.delete(ws);
-
-    // Find and remove the client
-    if (room) {
-      for (const [id, client] of room.clients.entries()) {
-        if (client.ws === ws) {
-          // Free up the PC assignment
-          if (client.pc) {
-            room.assignedPCs.delete(client.pc);
-            console.log(`Freed up ${client.pc}`);
-          }
-          room.clients.delete(id);
-          break;
-        }
-      }
-      // handle provisional assigned pc that never registered
-      if (ws.tempAssignedPC) {
-        room.assignedPCs.delete(ws.tempAssignedPC);
-      }
-    }
-    broadcastStatus(room);
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-});
-
-// Send status to a specific client
+// Helper functions for WebSocket communication (used by API endpoints)
 function sendStatusToClientRoom(ws, room) {
   if (!room) return;
   const status = {
@@ -349,12 +90,12 @@ function sendStatusToClientRoom(ws, room) {
   };
 
   room.clients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
       status[client.pc] = true;
     }
   });
 
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
     ws.send(
       JSON.stringify({
         type: 'status',
@@ -364,7 +105,6 @@ function sendStatusToClientRoom(ws, room) {
   }
 }
 
-// Broadcast connected PCs status to all listeners
 function broadcastStatus(room) {
   if (!room) return;
   const status = {
@@ -373,7 +113,7 @@ function broadcastStatus(room) {
   };
 
   room.clients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
       status[client.pc] = true;
     }
   });
@@ -382,7 +122,7 @@ function broadcastStatus(room) {
 
   // Send status to all registered status listeners
   room.statusListeners.forEach((ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
       ws.send(
         JSON.stringify({
           type: 'status',
@@ -394,7 +134,7 @@ function broadcastStatus(room) {
 
   // Also send to all PC clients for backward compatibility
   room.clients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
       client.ws.send(
         JSON.stringify({
           type: 'status',
@@ -404,34 +144,6 @@ function broadcastStatus(room) {
     }
   });
 }
-
-// Ping loop to ensure connections are alive
-setInterval(() => {
-  rooms.forEach((room, user) => {
-    room.clients.forEach((client, id) => {
-      if (client.ws.readyState !== WebSocket.OPEN) return;
-
-      if (client.isAlive === false) {
-        console.log(`Heartbeat missed from ${client.pc}, terminating connection`);
-        client.ws.terminate();
-        room.clients.delete(id);
-        room.assignedPCs.delete(client.pc);
-        broadcastStatus(room);
-        return;
-      }
-
-      client.isAlive = false; // will be set true on pong
-      try {
-        client.ws.send(JSON.stringify({ type: 'ping' }));
-      } catch (err) {
-        console.error('Failed to send ping', err);
-      }
-    });
-  });
-}, HEARTBEAT_INTERVAL);
-
-// Track active bets for each room
-const activeBets = new Map(); // roomId -> { betId, PC1: { status, startTime }, PC2: { status, startTime } }
 
 // API endpoint to send bet command
 app.post('/api/bet', (req, res) => {
