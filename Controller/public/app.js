@@ -242,7 +242,7 @@ const betBtnRow = document.querySelector('.bet-btn-row');
 // Configuration
 // const WS_BASE = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
 // const WS_BASE = 'ws://localhost:8080';
-const WS_BASE = 'wss://bet-automation-controller-production.up.railway.app';
+const WS_BASE = 'wss://bet-automation-production.up.railway.app';
 
 // Initialize WebSocket connection for status updates
 let statusWs = null;

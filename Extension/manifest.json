@@ -6,10 +6,8 @@
   "permissions": ["storage", "activeTab", "tabs", "scripting", "notifications"],
   "host_permissions": [
     "<all_urls>",
-    "https://absolutely-stirring-racer.ngrok-free.app/*",
-    "wss://absolutely-stirring-racer.ngrok-free.app/*",
-    "https://quality-crappie-painfully.ngrok-free.app/*",
-    "wss://quality-crappie-painfully.ngrok-free.app/*"
+    "https://bet-automation-production.up.railway.app/*",
+    "wss://bet-automation-production.up.railway.app/*"
   ],
   "background": {
     "service_worker": "background.js"
