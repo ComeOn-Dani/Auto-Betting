@@ -41,8 +41,8 @@ function verifyToken(token) {
 }
 
 const app = express();
-const PORT = 3000;
-const WS_PORT = 8080;
+const PORT = process.env.PORT || 3000;
+const WS_PORT = process.env.WS_PORT || 8080;
 
 // Middleware
 app.use(cors());
@@ -54,8 +54,11 @@ app.get('/', (req, res) => {
   res.redirect('/login.html');
 });
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: WS_PORT });
+// Create HTTP server first
+const server = require('http').createServer(app);
+
+// WebSocket server attached to HTTP server for Railway compatibility
+const wss = new WebSocket.Server({ server });
 
 // Store connected clients
 const clients = new Map();
@@ -787,8 +790,8 @@ app.get('/api/user/license', (req, res) => {
   });
 });
 
-// Start Express server
-app.listen(PORT, () => {
-  console.log(`Controller server running on http://localhost:${PORT}`);
-  console.log(`WebSocket server running on ws://localhost:${WS_PORT}`);
+// Start server with both HTTP and WebSocket on the same port
+server.listen(PORT, () => {
+  console.log(`Controller server running on port ${PORT}`);
+  console.log(`WebSocket server running on same port ${PORT}`);
 });
