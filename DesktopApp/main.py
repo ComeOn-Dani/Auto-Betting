@@ -419,8 +419,8 @@ class BetAutomationApp:
 def load_config() -> Config:
     server_config = {
         'controller': {
-            'http_url': 'https://bet-automation-controller-production.up.railway.app',
-            'ws_url': 'wss://bet-automation-controller-production.up.railway.app'
+            'http_url': 'https://bet-automation-production.up.railway.app',
+            'ws_url': 'wss://bet-automation-production.up.railway.app'
         }
     }
     return Config(

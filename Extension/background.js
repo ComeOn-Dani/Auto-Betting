@@ -1,6 +1,6 @@
 // Background service worker for Bet Automation Extension
 
-const WS_URL = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
+const WS_URL = 'wss://bet-automation-production.up.railway.app';
 // const WS_URL = 'ws://localhost:8080/';
 
 let accessToken = null;
