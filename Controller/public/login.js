@@ -13,7 +13,11 @@ document.getElementById('login-btn').addEventListener('click', async () => {
     return;
   }
   try {
+<<<<<<< HEAD
     const res = await fetch('/api/login', {
+=======
+    const res = await fetch(`${window.appConfig.apiBase}/api/login`, {
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

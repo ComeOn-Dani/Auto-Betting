@@ -5,11 +5,19 @@
   },
   "user1": {
     "passwordHash": "$2a$10$1kCyMb36DDLaXDitcJKdZ.ypl/.lubLRWyrYq0/XT/4HYOINVqNv2",
+<<<<<<< HEAD
     "licenseEndDate": "2025-09-06"
   },
   "user2": {
     "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6",
     "licenseEndDate": "2025-05-05"
+=======
+    "licenseEndDate": "2025-10-06"
+  },
+  "user2": {
+    "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6",
+    "licenseEndDate": "2025-09-24"
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
   },
   "user3": {
     "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6",

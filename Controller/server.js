@@ -42,7 +42,10 @@ function verifyToken(token) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+<<<<<<< HEAD
 const WS_PORT = process.env.WS_PORT || 8080;
+=======
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 
 // Middleware
 app.use(cors());
@@ -54,11 +57,16 @@ app.get('/', (req, res) => {
   res.redirect('/login.html');
 });
 
+<<<<<<< HEAD
 // Create HTTP server first
 const server = require('http').createServer(app);
 
 // WebSocket server attached to HTTP server for Railway compatibility
 const wss = new WebSocket.Server({ server });
+=======
+// For Vercel deployment, we'll use a separate WebSocket endpoint
+// WebSocket server will be handled by /api/ws.js
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 
 // Store connected clients
 const clients = new Map();
@@ -80,6 +88,7 @@ function getRoom(user) {
   return rooms.get(user);
 }
 
+<<<<<<< HEAD
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   console.log('New WebSocket connection');
@@ -345,6 +354,14 @@ wss.on('connection', (ws, req) => {
 });
 
 // Send status to a specific client
+=======
+// Note: WebSocket handling is moved to /api/ws.js for Vercel compatibility
+
+// Track active bets for each room
+const activeBets = new Map(); // roomId -> { betId, PC1: { status, startTime }, PC2: { status, startTime } }
+
+// Helper functions for WebSocket communication (used by API endpoints)
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 function sendStatusToClientRoom(ws, room) {
   if (!room) return;
   const status = {
@@ -353,12 +370,20 @@ function sendStatusToClientRoom(ws, room) {
   };
 
   room.clients.forEach((client) => {
+<<<<<<< HEAD
     if (client.ws.readyState === WebSocket.OPEN) {
+=======
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       status[client.pc] = true;
     }
   });
 
+<<<<<<< HEAD
   if (ws.readyState === WebSocket.OPEN) {
+=======
+  if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
     ws.send(
       JSON.stringify({
         type: 'status',
@@ -368,7 +393,10 @@ function sendStatusToClientRoom(ws, room) {
   }
 }
 
+<<<<<<< HEAD
 // Broadcast connected PCs status to all listeners
+=======
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 function broadcastStatus(room) {
   if (!room) return;
   const status = {
@@ -377,7 +405,11 @@ function broadcastStatus(room) {
   };
 
   room.clients.forEach((client) => {
+<<<<<<< HEAD
     if (client.ws.readyState === WebSocket.OPEN) {
+=======
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       status[client.pc] = true;
     }
   });
@@ -386,7 +418,11 @@ function broadcastStatus(room) {
 
   // Send status to all registered status listeners
   room.statusListeners.forEach((ws) => {
+<<<<<<< HEAD
     if (ws.readyState === WebSocket.OPEN) {
+=======
+    if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       ws.send(
         JSON.stringify({
           type: 'status',
@@ -398,7 +434,11 @@ function broadcastStatus(room) {
 
   // Also send to all PC clients for backward compatibility
   room.clients.forEach((client) => {
+<<<<<<< HEAD
     if (client.ws.readyState === WebSocket.OPEN) {
+=======
+    if (client.ws && client.ws.readyState === 1) { // WebSocket.OPEN = 1
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       client.ws.send(
         JSON.stringify({
           type: 'status',
@@ -409,6 +449,7 @@ function broadcastStatus(room) {
   });
 }
 
+<<<<<<< HEAD
 // Ping loop to ensure connections are alive
 setInterval(() => {
   rooms.forEach((room, user) => {
@@ -437,6 +478,8 @@ setInterval(() => {
 // Track active bets for each room
 const activeBets = new Map(); // roomId -> { betId, PC1: { status, startTime }, PC2: { status, startTime } }
 
+=======
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 // API endpoint to send bet command
 app.post('/api/bet', (req, res) => {
   const { platform, pc, amount, side, single = false, user } = req.body;
@@ -790,8 +833,18 @@ app.get('/api/user/license', (req, res) => {
   });
 });
 
+<<<<<<< HEAD
 // Start server with both HTTP and WebSocket on the same port
 server.listen(PORT, () => {
   console.log(`Controller server running on port ${PORT}`);
   console.log(`WebSocket server running on same port ${PORT}`);
 });
+=======
+// Start Express server
+app.listen(PORT, () => {
+  console.log(`Controller server running on http://localhost:${PORT}`);
+});
+
+// Export for Vercel
+module.exports = app;
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841

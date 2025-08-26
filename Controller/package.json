@@ -5,7 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+<<<<<<< HEAD
     "dev": "nodemon server.js"
+=======
+    "dev": "nodemon server.js",
+    "generate-chips": "node scripts/generateChips.js"
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
   },
   "dependencies": {
     "express": "^4.18.2",

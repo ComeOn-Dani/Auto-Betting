@@ -92,7 +92,11 @@ async function displayLicenseInfo() {
     }
   
   try {
+<<<<<<< HEAD
     const response = await fetch('/api/user/license', {
+=======
+    const response = await fetch(`${window.appConfig.apiBase}/api/user/license`, {
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       headers: {
         'Authorization': `Bearer ${storedToken}`,
         'Content-Type': 'application/json'
@@ -240,9 +244,13 @@ const placeBetPc2Btn = document.getElementById('place-bet-pc2');
 const betBtnRow = document.querySelector('.bet-btn-row');
 
 // Configuration
+<<<<<<< HEAD
 // const WS_BASE = 'wss://quality-crappie-painfully.ngrok-free.app/ws/';
 // const WS_BASE = 'ws://localhost:8080';
 const WS_BASE = 'wss://bet-automation-controller-production.up.railway.app';
+=======
+const WS_BASE = window.appConfig.wsBase;
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 
 // Initialize WebSocket connection for status updates
 let statusWs = null;
@@ -686,7 +694,11 @@ placeBetPc1Btn.addEventListener('click', async () => {
     user: currentUser,
   };  
   try {
+<<<<<<< HEAD
     const response = await fetch('/api/bet', {
+=======
+    const response = await fetch(`${window.appConfig.apiBase}/api/bet`, {
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -719,7 +731,11 @@ placeBetPc2Btn.addEventListener('click', async () => {
     user: currentUser,
   };
   try {
+<<<<<<< HEAD
     const response = await fetch('/api/bet', {
+=======
+    const response = await fetch(`${window.appConfig.apiBase}/api/bet`, {
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -829,7 +845,11 @@ addLog('Platform: Pragmatic only', 'info');
 // Cancel all bets handler
 cancelAllBtn.addEventListener('click', async () => {
   try {
+<<<<<<< HEAD
     const response = await fetch('/api/cancelBetAll', {
+=======
+    const response = await fetch(`${window.appConfig.apiBase}/api/cancelBetAll`, {
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: currentUser }),

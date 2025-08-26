@@ -417,6 +417,7 @@ class BetAutomationApp:
 
 
 def load_config() -> Config:
+<<<<<<< HEAD
     server_config = {
         'controller': {
             'http_url': 'https://bet-automation-controller-production.up.railway.app',
@@ -428,6 +429,22 @@ def load_config() -> Config:
         controller_ws=server_config['controller']['ws_url'],
         raw=server_config
     )
+=======
+	# Use hardcoded server addresses - no config file needed
+	server_config = {
+		'controller': {
+			'http_url': 'https://absolutely-stirring-racer.ngrok-free.app',
+			'ws_url': 'wss://quality-crappie-painfully.ngrok-free.app',
+		}
+	}
+	
+	print("Using hardcoded server configuration")
+	return Config(
+		controller_http=server_config['controller']['http_url'],
+		controller_ws=server_config['controller']['ws_url'],
+		raw=server_config
+	)
+>>>>>>> 99e932f45f95f84692d1711e1c8d8a9f661a3841
 
 
 if __name__ == '__main__':
