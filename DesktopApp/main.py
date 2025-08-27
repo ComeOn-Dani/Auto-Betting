@@ -421,7 +421,6 @@ def load_config() -> Config:
         'controller': {
             'http_url': 'https://bet-automation-production.up.railway.app',
             'ws_url': 'wss://bet-automation-production.up.railway.app'
-        }
     }
     return Config(
         controller_http=server_config['controller']['http_url'],
