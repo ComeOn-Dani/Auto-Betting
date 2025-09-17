@@ -1,6 +1,6 @@
 // Background service worker for Bet Automation Extension
 
-const WS_URL = 'wss://bet-automation-production.up.railway.app';
+const WS_URL = 'wss://www.god.bet';
 // const WS_URL = 'ws://localhost:8080/';
 
 let accessToken = null;

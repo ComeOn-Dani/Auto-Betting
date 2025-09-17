@@ -5,14 +5,14 @@
   },
   "user1": {
     "passwordHash": "$2a$10$1kCyMb36DDLaXDitcJKdZ.ypl/.lubLRWyrYq0/XT/4HYOINVqNv2",
-    "licenseEndDate": "2025-09-06"
+    "licenseEndDate": "2025-10-07"
   },
   "user2": {
     "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6",
-    "licenseEndDate": "2025-05-05"
+    "licenseEndDate": "2025-10-07"
   },
   "user3": {
     "passwordHash": "$2a$10$yNGSiiVuODjEwLu2L1BNVOJ0x6s2QZviKatdOq.uo2XGLvZVjjd.6",
-    "licenseEndDate": null
+    "licenseEndDate": "2025-10-07"
   }
 }
